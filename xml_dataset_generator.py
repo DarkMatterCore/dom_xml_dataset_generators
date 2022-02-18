@@ -130,7 +130,7 @@ def utilsGetGitInfo() -> None:
     if proc: GIT_REV += '-dirty'
 
     # Update default comment2 string.
-    DEFAULT_COMMENT2 = '[xml_dataset_generator.py commit %s used to generate XML files]%s%s' % (GIT_REV, HTML_LINE_BREAK, DEFAULT_COMMENT2)
+    DEFAULT_COMMENT2 = '[xml_dataset_generator.py revision %s used to generate XML files]%s%s' % (GIT_REV, HTML_LINE_BREAK, DEFAULT_COMMENT2)
 
 def utilsGenerateDictionaryFromCsvFile(csv_path: str, httpdir: str) -> Dict:
     csv_dict: Dict = {}
@@ -194,6 +194,9 @@ def utilsGenerateXmlDatasets(xml_dict: Dict, outdir: str) -> None:
                 tid = title_dict[0]
                 files_dict = title_dict[1]
                 headerless_files: List = []
+                crcless_files: List = []
+                md5less_files: List = []
+                sha1less_files: List = []
 
                 # Generate metadata.
                 title_str  = '  <game name="">\n'
@@ -221,11 +224,29 @@ def utilsGenerateXmlDatasets(xml_dict: Dict, outdir: str) -> None:
                     else:
                         rom_str += '      <rom forcename="%s" emptydir="0" extension="" item="" date="" format="Default" version="" utype="" size="%d" crc="%s" md5="%s" sha1="%s" sha256="" serial="" bad="0" unique="1" mergename="" />\n' % (name, size, crc, md5, sha1)
 
-                    # Add file to our headerless list (if needed).
+                    # Update lists (if needed).
                     if not size: headerless_files.append(name)
+                    if not crc: crcless_files.append(name)
+                    if not md5: md5less_files.append(name)
+                    if not sha1: sha1less_files.append(name)
 
                 # Update comment2 (if needed).
                 if headerless_files: comment2_str += '%s[No HTTP Response Header(s) for the following file(s) was included in data provided by dumper: %s]' % (HTML_LINE_BREAK, ', '.join(headerless_files))
+
+                if crcless_files or md5less_files or sha1less_files:
+                    comment2_str += '%s[The following hashes weren\'t including in the data provided by the dumper: ' % (HTML_LINE_BREAK)
+
+                    if crcless_files:
+                        comment2_str += 'CRC32 for %s' % (', '.join(crcless_files))
+                        if md5less_files: comment2_str += '; '
+
+                    if md5less_files:
+                        comment2_str += 'MD5 for %s' % (', '.join(md5less_files))
+                        if sha1less_files: comment2_str += '; '
+
+                    if sha1less_files: comment2_str += 'SHA1 for %s' % (', '.join(sha1less_files))
+
+                    comment2_str += ']'
 
                 # Update title string.
                 title_str += 'comment2="%s" link1="" link2="" region="" mediatitle="" />\n' % (comment2_str)
