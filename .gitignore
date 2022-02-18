@@ -1,5 +1,7 @@
 .vscode
 /all_hashes
 /head-requests
+/out
+*.xml
 *.dtd
 *.7z*
