@@ -25,6 +25,7 @@ import sys
 import re
 import base64
 import locale
+import subprocess
 import traceback
 
 from argparse import ArgumentParser
@@ -88,6 +89,10 @@ DEFAULT_COMMENT2:  str = '[Sizes from HTTP response header]%s[Sensitive fields (
 
 CONTENT_LENGTH_REGEX: Pattern[str] = re.compile(r"^Content-Length:\s*(\d+)", flags=(re.MULTILINE | re.IGNORECASE))
 
+GIT_BRANCH: str = ''
+GIT_COMMIT: str = ''
+GIT_REV:    str = ''
+
 def eprint(*args, **kwargs):
     print(*args, file=sys.stderr, **kwargs)
 
@@ -100,6 +105,32 @@ def utilsGetPath(path_arg: str, fallback_path: str, is_file: bool, create: bool 
         raise Exception("Error: '%s' points to an invalid file/directory." % (path))
 
     return path
+
+def utilsRunGit(args: List[str]) -> subprocess.CompletedProcess:
+    return subprocess.run(['git'] + args, capture_output=True, encoding='utf-8')
+
+def utilsGetGitInfo() -> None:
+    global DEFAULT_COMMENT2, GIT_BRANCH, GIT_COMMIT, GIT_REV
+
+    # Get git branch.
+    proc = utilsRunGit(['rev-parse', '--abbrev-ref', 'HEAD'])
+    if not proc.stdout or proc.returncode != 0: raise Exception('Failed to run git!')
+    GIT_BRANCH = proc.stdout.strip()
+
+    # Get git commit.
+    proc = utilsRunGit(['rev-parse', '--short', 'HEAD'])
+    if not proc.stdout or proc.returncode != 0: raise Exception('Failed to run git!')
+    GIT_COMMIT = proc.stdout.strip()
+
+    # Generate git revision string.
+    GIT_REV = GIT_BRANCH + '-' + GIT_COMMIT
+    proc = utilsRunGit(['status', '--porcelain'])
+    if proc.returncode != 0: raise Exception('Failed to run git!')
+    proc = proc.stdout.strip()
+    if proc: GIT_REV += '-dirty'
+
+    # Update default comment2 string.
+    DEFAULT_COMMENT2 = '[xml_dataset_generator.py commit %s used to generate XML files]%s%s' % (GIT_REV, HTML_LINE_BREAK, DEFAULT_COMMENT2)
 
 def utilsGenerateDictionaryFromCsvFile(csv_path: str, httpdir: str) -> Dict:
     csv_dict: Dict = {}
@@ -277,15 +308,18 @@ def utilsProcessData(csvdir: str, httpdir: str, outdir: str) -> None:
     utilsGenerateXmlDatasets(xml_dict, outdir)
 
 def main() -> int:
+    # Get git commit information.
+    utilsGetGitInfo()
+
     parser = ArgumentParser(description='Generate XML datasets from comma-separated text files.')
     parser.add_argument('--csvdir', type=str, metavar='DIR', help='Path to directory with comma-separated text files. Defaults to \'' + CSV_PATH + '\'.')
     parser.add_argument('--httpdir', type=str, metavar='DIR', help='Path to directory with HTTP response headers. Defaults to \'' + HTTP_PATH + '\'.')
     parser.add_argument('--outdir', type=str, metavar='DIR', help='Path to output directory. Defaults to \'' + OUTPUT_PATH + '\'.')
 
-    print(os.path.basename(sys.argv[0]) + ' - Made by DarkMatterCore.\n')
-    args = parser.parse_args()
+    print(os.path.basename(sys.argv[0]) + '.\nRevision: ' + GIT_REV + '.\nMade by DarkMatterCore.\n')
 
     # Parse arguments.
+    args = parser.parse_args()
     csvdir = utilsGetPath(args.csvdir, os.path.join(INITIAL_DIR, CSV_PATH), False)
     httpdir = utilsGetPath(args.csvdir, os.path.join(INITIAL_DIR, HTTP_PATH), False)
     outdir = utilsGetPath(args.outdir, os.path.join(INITIAL_DIR, OUTPUT_PATH), False, True)
