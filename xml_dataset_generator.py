@@ -234,7 +234,7 @@ def utilsGenerateXmlDatasets(xml_dict: Dict, outdir: str) -> None:
                 if headerless_files: comment2_str += '%s[No HTTP Response Header(s) for the following file(s) was included in data provided by dumper: %s]' % (HTML_LINE_BREAK, ', '.join(headerless_files))
 
                 if crcless_files or md5less_files or sha1less_files:
-                    comment2_str += '%s[The following hashes weren\'t including in the data provided by the dumper: ' % (HTML_LINE_BREAK)
+                    comment2_str += '%s[The following hashes (out of the provided hashes - CRC32, MD5 and SHA1) weren\'t included in the data provided by the dumper: ' % (HTML_LINE_BREAK)
 
                     if crcless_files:
                         comment2_str += 'CRC32 for %s' % (', '.join(crcless_files))
