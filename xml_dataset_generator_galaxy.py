@@ -131,7 +131,9 @@ def utilsGetGitInfo() -> None:
     if proc: GIT_REV += '-dirty'
 
     # Update default comment2 string.
-    DEFAULT_COMMENT2 = '[%s revision %s used to generate XML files]%s%s' % (SCRIPT_NAME, GIT_REV, HTML_LINE_BREAK, DEFAULT_COMMENT2)
+    comment2_str = DEFAULT_COMMENT2
+    DEFAULT_COMMENT2 = '[%s revision %s used to generate XML files]' % (SCRIPT_NAME, GIT_REV)
+    if comment2_str: DEFAULT_COMMENT2 += '%s%s' % (HTML_LINE_BREAK, comment2_str)
 
 def utilsGenerateDictionaryFromCsvFile(csv_path: str) -> Dict:
     csv_dict: Dict = {}
@@ -221,7 +223,7 @@ def utilsGenerateXmlDatasets(xml_dict: Dict, outdir: str) -> None:
 
                     # Generate metadata.
                     if header:
-                        rom_str += '      <rom forcename="%s" emptydir="0" extension="" item="" date="" format="Default" version="" utype="" size="%d" crc="%s" md5="%s" sha1="%s" sha256="" serial="" bad="0" unique="1" mergename="" unique_attachment="%s"/>\n' % (name, size, crc, md5, sha1, header)
+                        rom_str += '      <rom forcename="%s" emptydir="0" extension="" item="" date="" format="Default" version="" utype="" size="%d" crc="%s" md5="%s" sha1="%s" sha256="" serial="" bad="0" unique="1" mergename="" unique_attachment="%s" />\n' % (name, size, crc, md5, sha1, header)
                     else:
                         rom_str += '      <rom forcename="%s" emptydir="0" extension="" item="" date="" format="Default" version="" utype="" size="%d" crc="%s" md5="%s" sha1="%s" sha256="" serial="" bad="0" unique="1" mergename="" />\n' % (name, size, crc, md5, sha1)
 
@@ -326,7 +328,7 @@ def main() -> int:
     # Get git commit information.
     utilsGetGitInfo()
 
-    parser = ArgumentParser(description='Generate XML datasets from Galaxy\'s comma-separated text files.')
+    parser = ArgumentParser(description='Generate XML datasets from ' + DEFAULT_DUMPER + '\'s comma-separated text files.')
     parser.add_argument('--csvdir', type=str, metavar='DIR', help='Path to directory with comma-separated text files. Defaults to \'' + CSV_PATH + '\'.')
     parser.add_argument('--httpdir', type=str, metavar='DIR', help='Path to directory with HTTP response headers. Defaults to \'' + HTTP_PATH + '\'.')
     parser.add_argument('--outdir', type=str, metavar='DIR', help='Path to output directory. Defaults to \'' + OUTPUT_PATH + '\'.')

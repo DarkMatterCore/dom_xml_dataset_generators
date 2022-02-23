@@ -112,7 +112,9 @@ def utilsGetGitInfo() -> None:
     if proc: GIT_REV += '-dirty'
 
     # Update default comment2 string.
-    DEFAULT_COMMENT2 = '[%s revision %s used to generate XML files]%s%s' % (SCRIPT_NAME, GIT_REV, HTML_LINE_BREAK, DEFAULT_COMMENT2)
+    comment2_str = DEFAULT_COMMENT2
+    DEFAULT_COMMENT2 = '[%s revision %s used to generate XML files]' % (SCRIPT_NAME, GIT_REV)
+    if comment2_str: DEFAULT_COMMENT2 += '%s%s' % (HTML_LINE_BREAK, comment2_str)
 
 def utilsGenerateDictionaryFromMd5File(md5_path: str) -> Dict:
     md5_dict: Dict = {}
@@ -244,7 +246,7 @@ def utilsGenerateXmlDataset(xml_dict: Dict, outdir: str) -> None:
                 if not md5: continue
 
                 # Generate metadata.
-                rom_str += '      <rom forcename="%s" emptydir="0" extension="" item="" date="" format="Default" version="" utype="" size="%d" crc="" md5="%s" sha1="" sha256="" serial="" bad="0" unique="1" mergename="" unique_attachment="%s"/>\n' % (name, size, md5, header)
+                rom_str += '      <rom forcename="%s" emptydir="0" extension="" item="" date="" format="Default" version="" utype="" size="%d" crc="" md5="%s" sha1="" sha256="" serial="" bad="0" unique="1" mergename="" unique_attachment="%s" />\n' % (name, size, md5, header)
 
             # Skip title entirely if there are no valid rom entries.
             if not rom_str: continue
@@ -260,14 +262,14 @@ def utilsGenerateXmlDataset(xml_dict: Dict, outdir: str) -> None:
         # Write XML footer.
         xml_file.write(XML_FOOTER)
 
-def utilsProcessData(nolddir: str, outdir: str) -> None:
+def utilsProcessData(indir: str, outdir: str) -> None:
     xml_dict: Dict = {}
 
     # Loop through all posible string combinations.
     for title_type in TITLE_TYPES:
         for file_suffix in FILE_SUFFIXES:
             # Generate dictionary for the current file.
-            file_path: str = os.path.join(nolddir, title_type + file_suffix)
+            file_path: str = os.path.join(indir, title_type + file_suffix)
             file_dict: Dict = {}
             is_md5 = (file_suffix == '.md5')
 
@@ -309,19 +311,19 @@ def main() -> int:
     # Get git commit information.
     utilsGetGitInfo()
 
-    parser = ArgumentParser(description='Generate XML dataset from nold\'s Wii CDN dump.')
-    parser.add_argument('--nolddir', type=str, metavar='DIR', help='Path to directory with nold\'s Wii CDN dump. Defaults to \'' + NOLD_DATA_PATH + '\'.')
+    parser = ArgumentParser(description='Generate XML dataset from ' + DEFAULT_DUMPER + '\'s Wii CDN dump.')
+    parser.add_argument('--indir', type=str, metavar='DIR', help='Path to directory with ' + DEFAULT_DUMPER + '\'s Wii CDN dump. Defaults to \'' + NOLD_DATA_PATH + '\'.')
     parser.add_argument('--outdir', type=str, metavar='DIR', help='Path to output directory. Defaults to \'' + OUTPUT_PATH + '\'.')
 
     print(SCRIPT_NAME + '.\nRevision: ' + GIT_REV + '.\nMade by DarkMatterCore.\n')
 
     # Parse arguments.
     args = parser.parse_args()
-    nolddir = utilsGetPath(args.nolddir, os.path.join(INITIAL_DIR, NOLD_DATA_PATH), False)
+    indir = utilsGetPath(args.indir, os.path.join(INITIAL_DIR, NOLD_DATA_PATH), False)
     outdir = utilsGetPath(args.outdir, os.path.join(INITIAL_DIR, OUTPUT_PATH), False, True)
 
     # Do our thing.
-    utilsProcessData(nolddir, outdir)
+    utilsProcessData(indir, outdir)
 
     return 0
 

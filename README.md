@@ -1,3 +1,3 @@
-﻿# xml_dataset_generator
+﻿# dom_xml_dataset_generators
 
-Experimental Python script to generate DAT-o-MATIC compliant XML datasets using CSV files and HTTP response headers.
+Experimental Python scripts to generate DAT-o-MATIC compliant XML datasets using Nintendo's CDN dumps from various users.
