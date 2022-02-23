@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 
 """
- * xml_dataset_generator.py
+ * xml_dataset_generator_galaxy.py
  *
  * Copyright (c) 2022, DarkMatterCore <pabloacurielz@gmail.com>.
  *
@@ -24,12 +24,13 @@ import os
 import sys
 import re
 import base64
-import locale
 import subprocess
 import traceback
 
 from argparse import ArgumentParser
 from typing import List, Union, Tuple, Dict, Pattern, TYPE_CHECKING
+
+SCRIPT_NAME: str = os.path.basename(sys.argv[0])
 
 INITIAL_DIR: str = os.path.abspath(os.path.dirname(__file__))
 
@@ -130,9 +131,9 @@ def utilsGetGitInfo() -> None:
     if proc: GIT_REV += '-dirty'
 
     # Update default comment2 string.
-    DEFAULT_COMMENT2 = '[xml_dataset_generator.py revision %s used to generate XML files]%s%s' % (GIT_REV, HTML_LINE_BREAK, DEFAULT_COMMENT2)
+    DEFAULT_COMMENT2 = '[%s revision %s used to generate XML files]%s%s' % (SCRIPT_NAME, GIT_REV, HTML_LINE_BREAK, DEFAULT_COMMENT2)
 
-def utilsGenerateDictionaryFromCsvFile(csv_path: str, httpdir: str) -> Dict:
+def utilsGenerateDictionaryFromCsvFile(csv_path: str) -> Dict:
     csv_dict: Dict = {}
 
     with open(csv_path, 'r') as csv:
@@ -268,10 +269,6 @@ def utilsProcessData(csvdir: str, httpdir: str, outdir: str) -> None:
         'WiiU': {}
     }
 
-    # Change locale.
-    cur_locale = locale.getdefaultlocale()[0]
-    locale.setlocale(locale.LC_ALL, 'en_US')
-
     # Loop through all posible string combinations.
     for system_prefix in SYSTEM_PREFIXES:
         for dump_type in DUMP_TYPES:
@@ -280,7 +277,7 @@ def utilsProcessData(csvdir: str, httpdir: str, outdir: str) -> None:
                 csv_path: str = os.path.join(csvdir, system_prefix + '_' + dump_type + '_' + hash_type + '.txt')
 
                 try:
-                    csv_dict = utilsGenerateDictionaryFromCsvFile(csv_path, httpdir)
+                    csv_dict = utilsGenerateDictionaryFromCsvFile(csv_path)
                 except Exception as e:
                     #traceback.print_exc(file=sys.stderr)
                     continue
@@ -322,9 +319,6 @@ def utilsProcessData(csvdir: str, httpdir: str, outdir: str) -> None:
 
                 xml_dict.update({word: system_dict})
 
-    # Reset locale.
-    locale.setlocale(locale.LC_ALL, cur_locale)
-
     # Generate output XML datasets.
     utilsGenerateXmlDatasets(xml_dict, outdir)
 
@@ -332,12 +326,12 @@ def main() -> int:
     # Get git commit information.
     utilsGetGitInfo()
 
-    parser = ArgumentParser(description='Generate XML datasets from comma-separated text files.')
+    parser = ArgumentParser(description='Generate XML datasets from Galaxy\'s comma-separated text files.')
     parser.add_argument('--csvdir', type=str, metavar='DIR', help='Path to directory with comma-separated text files. Defaults to \'' + CSV_PATH + '\'.')
     parser.add_argument('--httpdir', type=str, metavar='DIR', help='Path to directory with HTTP response headers. Defaults to \'' + HTTP_PATH + '\'.')
     parser.add_argument('--outdir', type=str, metavar='DIR', help='Path to output directory. Defaults to \'' + OUTPUT_PATH + '\'.')
 
-    print(os.path.basename(sys.argv[0]) + '.\nRevision: ' + GIT_REV + '.\nMade by DarkMatterCore.\n')
+    print(SCRIPT_NAME + '.\nRevision: ' + GIT_REV + '.\nMade by DarkMatterCore.\n')
 
     # Parse arguments.
     args = parser.parse_args()

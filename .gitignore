@@ -2,6 +2,7 @@
 /all_hashes
 /head-requests
 /out
+/nold
 *.xml
 *.dtd
 *.7z*
