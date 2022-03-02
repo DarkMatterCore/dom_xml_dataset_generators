@@ -171,7 +171,7 @@ def utilsGenerateXmlDataset(xml_dict: Dict, outdir: str) -> None:
             title_str += '    <archive name="%s" namealt="" region="Unknown" languages="En" showlang="2" version="" devstatus="" additional="" special1="" special2="" gameid="" clone="" regionalparent="" mergeof="" datternote="" stickynote="" />\n' % (tid)
             title_str += '    <flags bios="0" licensed="1" pirate="0" physical="0" complete="1" nodump="0" public="1" dat="1" />\n'
             title_str += '    <source>\n'
-            title_str += '      <details section="Trusted Dump" rominfo="" dumpdate="%s" originalformat="Default" knowndumpdate="1" releasedate="" knownreleasedate="0" dumper="!anonymous" project="" tool="Custom" origin="" comment1="" comment2="%s" link1="" link2="" region="" mediatitle="" />\n' % (DEFAULT_DUMP_DATE, DEFAULT_COMMENT2)
+            title_str += '      <details section="Trusted Dump" rominfo="" dumpdate="%s" originalformat="Default" knowndumpdate="0" releasedate="" knownreleasedate="0" dumper="!anonymous" project="" tool="Custom" origin="" comment1="" comment2="%s" link1="" link2="" region="" mediatitle="" />\n' % (DEFAULT_DUMP_DATE, DEFAULT_COMMENT2)
             title_str += '      <serials mediaserial1="" mediaserial2="" pcbserial="" romchipserial1="" romchipserial2="" lockoutserial="" savechipserial="" chipserial="" boxserial="" mediastamp="" boxbarcode="" digitalserial1="%s" digitalserial2="" />\n' % (tid)
 
             rom_str = ''
