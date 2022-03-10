@@ -3,7 +3,9 @@
 /head-requests
 /out
 /nold
+/hashes
 *.xml
 *.dtd
 *.7z*
 *.txt
+*.rar

@@ -22,8 +22,6 @@ from __future__ import print_function
 
 import os
 import sys
-import re
-import base64
 import subprocess
 import traceback
 
