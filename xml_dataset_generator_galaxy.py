@@ -88,7 +88,11 @@ DEFAULT_DUMP_DATE: str = '2021-08-23'
 DEFAULT_DUMPER:    str = 'Galaxy'
 DEFAULT_COMMENT2:  str = '[Sizes from HTTP response header]%s[Sensitive fields (&quot;Date&quot; at least) removed from HTTP Response Header by dumper]' % (HTML_LINE_BREAK)
 
+STATUS_REGEX:         Pattern[str] = re.compile(r"^HTTP/1\.1\s+200\s+OK", flags=(re.MULTILINE | re.IGNORECASE))
 CONTENT_LENGTH_REGEX: Pattern[str] = re.compile(r"^Content-Length:\s*(\d+)", flags=(re.MULTILINE | re.IGNORECASE))
+LINE_REGEX:           Pattern[str] = re.compile(r"^.+$", flags=(re.MULTILINE | re.IGNORECASE))
+
+WINDOWS_LINE_BREAK: str = '\r\n'
 
 GIT_BRANCH: str = ''
 GIT_COMMIT: str = ''
@@ -160,22 +164,40 @@ def utilsGenerateDictionaryFromCsvFile(csv_path: str) -> Dict:
     return csv_dict
 
 def utilsGetHttpResponseHeaderData(http_path: str) -> Tuple:
-    http_data: bytes = b''
+    responses: List = []
+    cur_response: str = ''
+    size: int = 0
 
-    # Read binary HTTP response header.
-    with open(http_path, 'rb') as http_file:
-        http_data = http_file.read()
+    # Get HTTP response headers from the input file.
+    with open(http_path, 'r') as http_file:
+        for idx, line in enumerate(http_file):
+            if not line.strip():
+                responses.append(cur_response)
+                cur_response = ''
+            else:
+                cur_response += line
 
-    # Convert binary HTTP response header to Base64.
-    http_data_b64 = base64.b64encode(http_data).decode('utf-8')
+    # Parse HTTP response headers.
+    for res in responses:
+        cur_response = ''
 
-    # Decode binary data into a string.
-    http_data = http_data.decode('utf-8')
+        # Check if this is the desired HTTP response.
+        size = re.search(CONTENT_LENGTH_REGEX, res)
+        if (not re.search(STATUS_REGEX, res)) or (not size): continue
 
-    # Perform a regex search to get the content size.
-    size = re.search(CONTENT_LENGTH_REGEX, http_data)
-    if not size: raise Exception('Error: Content-Length attribute not available in \'%s\'.' % (http_path))
+        # Remove leading and trailing whitespace and regenerate the raw response header.
+        regex = re.findall(LINE_REGEX, res)
+        for k, v in enumerate(regex): regex[k] = regex[k].strip()
+        cur_response = WINDOWS_LINE_BREAK.join(regex) + (WINDOWS_LINE_BREAK * 2)
 
+        break
+
+    if not cur_response: raise Exception('Error: 200 status response with Content-Length attribute not available in \'%s\'.' % (http_path))
+
+    # Convert HTTP response header to Base64.
+    http_data_b64 = base64.b64encode(cur_response.encode('utf-8')).decode('utf-8')
+
+    # Get content size.
     size = int(size.group(1))
     if not size: raise Exception('Error: Content-Length attribute in \'%s\' is zero.' % (http_path))
 
