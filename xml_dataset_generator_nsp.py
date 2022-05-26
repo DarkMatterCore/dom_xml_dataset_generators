@@ -279,7 +279,7 @@ def utilsGetNcaInfo(hactool: str, keys: str, nca_path: str, titlekey: str = '', 
         return {}
 
     nca_info = {
-        #'stdout': proc.stdout,
+        'stdout': proc.stdout,
         'dist_type': dist_type,
         'cnt_type': cnt_type,
         'crypto_type': crypto_type,
@@ -299,14 +299,6 @@ def utilsGetNcaInfo(hactool: str, keys: str, nca_path: str, titlekey: str = '', 
     })
 
     return nca_info
-
-
-
-
-
-
-
-
 
 def utilsBuildNspTitleList(ext_nsp_dir: str, hactool: str, keys: str) -> List:
     # Empty dictionary, used to hold the NSP title list.
@@ -329,6 +321,7 @@ def utilsBuildNspTitleList(ext_nsp_dir: str, hactool: str, keys: str) -> List:
         display_name = ''
         publisher = ''
         display_version = ''
+        demo = False
         supported_languages = []
 
         success = True
@@ -430,6 +423,7 @@ def utilsBuildNspTitleList(ext_nsp_dir: str, hactool: str, keys: str) -> List:
                 display_name = nacp.title[Nacp.Language.american_english.value].name
                 publisher = nacp.title[Nacp.Language.american_english.value].publisher
                 display_version = nacp.display_version
+                demo = nacp.attribute.demo
 
                 for data in Nacp.Language:
                     if data.name == 'count': break
@@ -447,6 +441,7 @@ def utilsBuildNspTitleList(ext_nsp_dir: str, hactool: str, keys: str) -> List:
                 'display_name': display_name,
                 'publisher': publisher,
                 'display_version': display_version,
+                'demo': demo,
                 'supported_languages': supported_languages,
                 'crypto': {
                     'rights_id': rights_id,

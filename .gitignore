@@ -5,6 +5,7 @@ __pycache__
 /out
 /nold
 /hashes
+/nsp
 *.xml
 *.dtd
 *.7z*
