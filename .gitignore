@@ -1,4 +1,5 @@
 .vscode
+__pycache__
 /all_hashes
 /head-requests
 /out
@@ -9,3 +10,6 @@
 *.7z*
 *.txt
 *.rar
+*.nsp
+hactool*
+*.keys
