@@ -598,10 +598,10 @@ def utilsGenerateXmlDataset(nsp_list: List, outdir: str, exclude_nsp: bool, sect
                     if cnt['cnt_type'] == 'meta': cnt_filename += '.cnmt'
                     cnt_filename += '.nca'
 
-                    cnt_format = 'CDN'
-                    if (cnt['cnt_type'] != 'program') and (cnt['cnt_type'] != 'data') and (cnt['cnt_type'] != 'delta_fragment'): cnt_format += ',CDNMeta'
+                    rom_str += '      <rom forcename="%s" format="CDN" version="%d" size="%d" crc="%s" md5="%s" sha1="%s" sha256="%s" />\n' % (cnt_filename, title['version'], cnt['size'], cnt['crc'], cnt['md5'], cnt['sha1'], cnt['sha256'])
 
-                    rom_str += '      <rom forcename="%s" format="%s" version="%d" size="%d" crc="%s" md5="%s" sha1="%s" sha256="%s" />\n' % (cnt_filename, cnt_format, title['version'], cnt['size'], cnt['crc'], cnt['md5'], cnt['sha1'], cnt['sha256'])
+                    if (cnt['cnt_type'] != 'program') and (cnt['cnt_type'] != 'data') and (cnt['cnt_type'] != 'delta_fragment'):
+                        rom_str += '      <rom forcename="%s" format="CDNMeta" version="%d" size="%d" crc="%s" md5="%s" sha1="%s" sha256="%s" />\n' % (cnt_filename, title['version'], cnt['size'], cnt['crc'], cnt['md5'], cnt['sha1'], cnt['sha256'])
 
                 crypto = title['crypto']
                 if crypto['rights_id'] and crypto['ticket']:
