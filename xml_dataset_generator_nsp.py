@@ -590,7 +590,7 @@ def utilsGenerateXmlDataset(nsp_list: List, outdir: str, exclude_nsp: bool, sect
 
                 if nsp:
                     # Add NSP information.
-                    rom_str += '      <rom name="%s" format="NSP" version="%d" size="%d" crc="%s" md5="%s" sha1="%s" sha256="%s" />\n' % (nsp['filename'], title['version'], nsp['size'], nsp['crc'], nsp['md5'], nsp['sha1'], nsp['sha256'])
+                    rom_str += '      <rom forcename="%s" format="NSP" version="%d" size="%d" crc="%s" md5="%s" sha1="%s" sha256="%s" />\n' % (nsp['filename'], title['version'], nsp['size'], nsp['crc'], nsp['md5'], nsp['sha1'], nsp['sha256'])
 
                 for cnt in title['contents']:
                     # Add current NCA information.
@@ -601,7 +601,7 @@ def utilsGenerateXmlDataset(nsp_list: List, outdir: str, exclude_nsp: bool, sect
                     cnt_format = 'CDN'
                     if (cnt['cnt_type'] != 'program') and (cnt['cnt_type'] != 'data') and (cnt['cnt_type'] != 'delta_fragment'): cnt_format += ',CDNMeta'
 
-                    rom_str += '      <rom name="%s" format="%s" version="%d" size="%d" crc="%s" md5="%s" sha1="%s" sha256="%s" />\n' % (cnt_filename, cnt_format, title['version'], cnt['size'], cnt['crc'], cnt['md5'], cnt['sha1'], cnt['sha256'])
+                    rom_str += '      <rom forcename="%s" format="%s" version="%d" size="%d" crc="%s" md5="%s" sha1="%s" sha256="%s" />\n' % (cnt_filename, cnt_format, title['version'], cnt['size'], cnt['crc'], cnt['md5'], cnt['sha1'], cnt['sha256'])
 
                 crypto = title['crypto']
                 if crypto['rights_id'] and crypto['ticket']:
@@ -611,13 +611,13 @@ def utilsGenerateXmlDataset(nsp_list: List, outdir: str, exclude_nsp: bool, sect
                     dtk = crypto['dec_titlekey']
 
                     # Add ticket info.
-                    rom_str += '      <rom name="%s" format="CDN" version="0" size="%d" crc="%s" md5="%s" sha1="%s" sha256="%s" />\n' % (rights_id + '.tik', tik['size'], tik['crc'], tik['md5'], tik['sha1'], tik['sha256'])
+                    rom_str += '      <rom forcename="%s" format="CDN" version="0" size="%d" crc="%s" md5="%s" sha1="%s" sha256="%s" />\n' % (rights_id + '.tik', tik['size'], tik['crc'], tik['md5'], tik['sha1'], tik['sha256'])
 
                     # Add encrypted titlekey info.
-                    rom_str += '      <rom name="%s" format="CDN" version="0" size="%d" crc="%s" md5="%s" sha1="%s" sha256="%s" />\n' % (rights_id + '.enctitlekey.tik', etk['size'], etk['crc'], etk['md5'], etk['sha1'], etk['sha256'])
+                    rom_str += '      <rom forcename="%s" format="CDN" version="0" size="%d" crc="%s" md5="%s" sha1="%s" sha256="%s" />\n' % (rights_id + '.enctitlekey.tik', etk['size'], etk['crc'], etk['md5'], etk['sha1'], etk['sha256'])
 
                     # Add decrypted titlekey info.
-                    rom_str += '      <rom name="%s" format="CDN" version="0" size="%d" crc="%s" md5="%s" sha1="%s" sha256="%s" />\n' % (rights_id + '.dectitlekey.tik', dtk['size'], dtk['crc'], dtk['md5'], dtk['sha1'], dtk['sha256'])
+                    rom_str += '      <rom forcename="%s" format="CDN" version="0" size="%d" crc="%s" md5="%s" sha1="%s" sha256="%s" />\n' % (rights_id + '.dectitlekey.tik', dtk['size'], dtk['crc'], dtk['md5'], dtk['sha1'], dtk['sha256'])
 
                 # Update title string.
                 title_str += rom_str
