@@ -541,6 +541,9 @@ def utilsGenerateXmlDataset(nsp_list: List, outdir: str, exclude_nsp: bool, sect
             # Process titles available in current NSP.
             for title in entry['titles']:
                 # Generate metadata.
+                archive_name = title['display_name']
+                if not archive_name: archive_name = title['title_id']
+
                 dev_status = ''
                 if title['demo']: dev_status += 'Demo'
                 if (title['title_type'] == 'Patch') or (title['title_type'] == 'AddOnContent'):
@@ -548,7 +551,7 @@ def utilsGenerateXmlDataset(nsp_list: List, outdir: str, exclude_nsp: bool, sect
                     dev_status += ('Update' if (title['title_type'] == 'Patch') else 'DLC')
 
                 title_str  = '  <game name="">\n'
-                title_str += '    <archive name="%s" namealt="" region="%s" languages="%s" langchecked="0" version="%s" devstatus="%s" additional="" special1="" special2="" gameid="%s" />\n' % (title['display_name'], region, ','.join(title['supported_languages']), '' if (title['version'] == 0) else 'v{:d}'.format(title['version']), dev_status, title['title_id'])
+                title_str += '    <archive name="%s" namealt="" region="%s" languages="%s" langchecked="0" version="%s" devstatus="%s" additional="" special1="" special2="" gameid="%s" />\n' % (archive_name, region, ','.join(title['supported_languages']), '' if (title['version'] == 0) else 'v{:d}'.format(title['version']), dev_status, title['title_id'])
                 title_str += '    <flags bios="0" licensed="1" pirate="0" physical="0" complete="1" nodump="0" public="1" dat="1" />\n'
 
                 if title['display_name'] or title['publisher'] or title['display_version']:
