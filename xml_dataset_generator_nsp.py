@@ -549,7 +549,7 @@ def utilsGenerateXmlDataset(nsp_list: List, outdir: str, exclude_nsp: bool, sect
         for entry in nsp_list:
             # Process titles available in current NSP.
             for title in entry['titles']:
-                nsp = (None if (not exclude_nsp) else entry['nsp'])
+                nsp = (None if exclude_nsp else entry['nsp'])
 
                 # Escape ampersand characters.
                 if title['display_name']: title['display_name'] = title['display_name'].replace('&', HTML_AMPERSAND)
