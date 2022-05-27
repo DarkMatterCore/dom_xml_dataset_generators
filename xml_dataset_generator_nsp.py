@@ -35,9 +35,9 @@ import string
 from cnmt import Cnmt
 from tik import Tik
 from nacp import Nacp
-import copy
+import datetime
 
-from argparse import ArgumentParser
+import argparse
 from typing import List, Union, Tuple, Dict, Pattern, TYPE_CHECKING
 
 SCRIPT_NAME: str = os.path.basename(sys.argv[0])
@@ -54,26 +54,51 @@ HACTOOL_CONTENT_TYPE_REGEX       = re.compile(r"^Content Type:\s+(.+)$", flags=(
 HACTOOL_ENCRYPTION_TYPE_REGEX    = re.compile(r"^Encryption Type:\s+(.+)$", flags=(re.MULTILINE | re.IGNORECASE))
 HACTOOL_RIGHTS_ID_REGEX          = re.compile(r"^Rights ID:\s+([0-9a-f]{32})$", flags=(re.MULTILINE | re.IGNORECASE))
 HACTOOL_DECRYPTED_TITLEKEY_REGEX = re.compile(r"^Titlekey \(Decrypted\) \(From CLI\)\s+([0-9a-f]{32})$", flags=(re.MULTILINE | re.IGNORECASE))
-HACTOOL_VERIFY_REGEX            = re.compile(r"\(FAIL\)", flags=(re.MULTILINE | re.IGNORECASE))
-HACTOOL_SAVING_REGEX            = re.compile(r"^Saving (.+) to", flags=(re.MULTILINE | re.IGNORECASE))
-
-TICKET_SIZE: int = 0x2C0
+HACTOOL_VERIFY_REGEX             = re.compile(r"\(FAIL\)", flags=(re.MULTILINE | re.IGNORECASE))
+HACTOOL_SAVING_REGEX             = re.compile(r"^Saving (.+) to", flags=(re.MULTILINE | re.IGNORECASE))
 
 NCA_DISTRIBUTION_TYPE: str = 'download'
 
+OUTPUT_XML_NAME: str = 'nsw_nsp.xml'
 
+DOM_LANGUAGES: Dict = {
+    'AmericanEnglish':      'En-US',
+    'BritishEnglish':       'En-GB',
+    'Japanese':             'Ja',
+    'French':               'Fr-FR',
+    'German':               'De',
+    'LatinAmericanSpanish': 'Es-LX',
+    'Spanish':              'Es-ES',
+    'Italian':              'It',
+    'Dutch':                'Nl',
+    'CanadianFrench':       'Fr-CA',
+    'Portuguese':           'Pt-PT',
+    'Russian':              'Ru',
+    'Korean':               'Ko',
+    'TraditionalChinese':   'Zh-Hant',
+    'SimplifiedChinese':    'Zh-Hans',
+    'BrazilianPortuguese':  'Pt-BR'
+}
 
+XML_HEADER: str = '<?xml version="1.0" encoding="utf-8"?>\n'
+XML_HEADER +=     '<!DOCTYPE datafile PUBLIC "http://www.logiqx.com/Dats/datafile.dtd" "-//Logiqx//DTD ROM Management Datafile//EN">\n'
+XML_HEADER +=     '<datafile>\n'
+XML_HEADER +=     '  <header>\n'
+XML_HEADER +=     '  </header>\n'
 
+XML_FOOTER: str = '</datafile>\n'
 
+HTML_LINE_BREAK:  str = '&#xA;'
 
-
-DEFAULT_COMMENT2:  str = ''
+DEFAULT_DUMPER:   str = '!unknown'
+DEFAULT_PROJECT:  str = '!unknown'
+DEFAULT_TOOL:     str = '!unknown'
+DEFAULT_REGION:   str = 'Unknown'
+DEFAULT_COMMENT2: str = ''
 
 GIT_BRANCH: str = ''
 GIT_COMMIT: str = ''
 GIT_REV:    str = ''
-
-WINDOWS_LINE_BREAK: str = '\r\n'
 
 HASH_BLOCK_SIZE: int = 0x800000 # 8 MiB
 
@@ -279,7 +304,7 @@ def utilsGetNcaInfo(hactool: str, keys: str, nca_path: str, titlekey: str = '', 
         return {}
 
     nca_info = {
-        'stdout': proc.stdout,
+        #'stdout': proc.stdout,
         'dist_type': dist_type,
         'cnt_type': cnt_type,
         'crypto_type': crypto_type,
@@ -427,7 +452,9 @@ def utilsBuildNspTitleList(ext_nsp_dir: str, hactool: str, keys: str) -> List:
 
                 for data in Nacp.Language:
                     if data.name == 'count': break
-                    if nacp.supported_language.languages[data.value]: supported_languages.append(utilsCapitalizeString(data.name))
+                    if nacp.supported_language.languages[data.value]:
+                        dom_lang = DOM_LANGUAGES.get(utilsCapitalizeString(data.name), '')
+                        if dom_lang: supported_languages.append(dom_lang)
 
                 # Close NACP.
                 nacp.close()
@@ -460,17 +487,18 @@ def utilsBuildNspTitleList(ext_nsp_dir: str, hactool: str, keys: str) -> List:
 
     return titles
 
-def utilsProcessNspFile(hactool: str, keys: str, outdir: str, nsp: List) -> Dict:
-    nsp_dict: Dict = {}
-
-    # Get NSP info.
+def utilsProcessNspFile(hactool: str, keys: str, outdir: str, nsp: List, exclude_nsp: bool) -> Dict:
+    nsp_info: Dict = {}
     nsp_path, nsp_size = nsp
-    nsp_info = utilsCalculateFileChecksums(nsp_path)
-    nsp_info.update({
-        'filename': os.path.basename(nsp_path),
-        'size': nsp_size
-    })
-    nsp_dict.update({ 'nsp': nsp_info })
+
+    if not exclude_nsp:
+        # Get NSP info.
+        nsp_properties = utilsCalculateFileChecksums(nsp_path)
+        nsp_properties.update({
+            'filename': os.path.basename(nsp_path),
+            'size': nsp_size
+        })
+        nsp_info.update({ 'nsp': nsp_properties })
 
     # Extract NSP.
     ext_nsp_dir = os.path.join(outdir, GIT_REV + '_' + utilsGetRandomString(8))
@@ -486,41 +514,132 @@ def utilsProcessNspFile(hactool: str, keys: str, outdir: str, nsp: List) -> Dict
     if not nsp_title_list: return {}
 
     # Update output dictionary.
-    nsp_dict.update({ 'titles': nsp_title_list })
+    nsp_info.update({ 'titles': nsp_title_list })
 
-    return nsp_dict
+    return nsp_info
 
-def utilsProcessNspDir(nspdir: str, hactool: str, keys: str, outdir: str) -> None:
-    # Get NSP list.
-    nsp_list = utilsGetFileList(nspdir, 'nsp', True)
-    if not nsp_list: raise Exception("Error: input directory holds no NSP files.")
+def utilsGenerateXmlDataset(nsp_list: List, outdir: str, exclude_nsp: bool, section: str, dump_date: str, release_date: str, dumper: str, project: str, tool: str, region: str) -> None:
+    dump_date_provided = (len(dump_date) > 0)
+    if not dump_date_provided: dump_date = datetime.datetime.now().date().isoformat()
 
+    release_date_provided = (len(release_date) > 0)
 
+    xml_path = os.path.join(outdir, OUTPUT_XML_NAME)
+    with open(xml_path, 'w') as xml_file:
+        # Write XML file header.
+        xml_file.write(XML_HEADER)
 
-    import pprint
-    pp = pprint.PrettyPrinter(indent=4)
+        # Process NSP info list.
+        for entry in nsp_list:
+            # Process titles available in current NSP.
+            for title in entry['titles']:
+                # Generate metadata.
+                dev_status = ''
+                if title['demo']: dev_status += 'Demo'
+                if (title['title_type'] == 'Patch') or (title['title_type'] == 'AddOnContent'):
+                    if dev_status: dev_status += ','
+                    dev_status += ('Update' if (title['title_type'] == 'Patch') else 'DLC')
 
+                title_str  = '  <game name="">\n'
+                title_str += '    <archive name="%s" namealt="" region="%s" languages="%s" langchecked="0" version="%s" devstatus="%s" additional="" special1="" special2="" gameid="%s" />\n' % (title['display_name'], region, ','.join(title['supported_languages']), '' if (title['version'] == 0) else 'v{:d}'.format(title['version']), dev_status, title['title_id'])
+                title_str += '    <flags bios="0" licensed="1" pirate="0" physical="0" complete="1" nodump="0" public="1" dat="1" />\n'
 
+                if title['display_name'] or title['publisher'] or title['display_version']:
+                    title_str += '    <media>\n'
+                    if title['display_name']: title_str += '      <field name="Original Name (NACP, AmericanEnglish)" value="%s" />\n' % (title['display_name'])
+                    if title['publisher']: title_str += '      <field name="Publisher (NACP, AmericanEnglish)" value="%s" />\n' % (title['publisher'])
+                    if title['display_version']: title_str += '      <field name="Display Version (NACP)" value="%s" />\n' % (title['display_version'])
+                    title_str += '    </media>\n'
 
+                title_str += '    <source>\n'
+                title_str += '      <details section="%s" rominfo="" originalformat="NSP" dumpdate="%s" knowndumpdate="%d" releasedate="%s" knownreleasedate="%d" dumper="%s" project="%s" tool="%s" region="%s" origin="" comment1="" comment2="%s" link1="" link2="" mediatitle="" />\n' % (section, dump_date, int(dump_date_provided), release_date, int(release_date_provided), dumper, project, tool, region, DEFAULT_COMMENT2)
+                title_str += '      <serials mediaserial1="" mediaserial2="" pcbserial="" romchipserial1="" romchipserial2="" lockoutserial="" savechipserial="" chipserial="" boxserial="" mediastamp="" boxbarcode="" digitalserial1="%s" digitalserial2="" />\n' % (title['title_id'])
+
+                # Generate ROM entries.
+                rom_str = ''
+
+                if not exclude_nsp:
+                    # Add NSP information.
+                    nsp = entry['nsp']
+                    rom_str += '      <rom name="%s" format="NSP" version="%d" size="%d" crc="%s" md5="%s" sha1="%s" sha256="%s" />\n' % (nsp['filename'], title['version'], nsp['size'], nsp['crc'], nsp['md5'], nsp['sha1'], nsp['sha256'])
+
+                for cnt in title['contents']:
+                    # Add current NCA information.
+                    cnt_filename = cnt['cnt_id']
+                    if cnt['cnt_type'] == 'meta': cnt_filename += '.cnmt'
+                    cnt_filename += '.nca'
+
+                    rom_str += '      <rom name="%s" format="CDN,CDNMeta" version="%d" size="%d" crc="%s" md5="%s" sha1="%s" sha256="%s" />\n' % (cnt_filename, title['version'], cnt['size'], cnt['crc'], cnt['md5'], cnt['sha1'], cnt['sha256'])
+
+                crypto = title['crypto']
+                if crypto['rights_id'] and crypto['ticket']:
+                    rights_id = crypto['rights_id']
+                    tik = crypto['ticket']
+                    etk = crypto['enc_titlekey']
+                    dtk = crypto['dec_titlekey']
+
+                    # Add ticket info.
+                    rom_str += '      <rom name="%s" format="CDN,CDNMeta" version="0" size="%d" crc="%s" md5="%s" sha1="%s" sha256="%s" />\n' % (rights_id + '.tik', tik['size'], tik['crc'], tik['md5'], tik['sha1'], tik['sha256'])
+
+                    # Add encrypted titlekey info.
+                    rom_str += '      <rom name="%s" format="CDN,CDNMeta" version="0" size="%d" crc="%s" md5="%s" sha1="%s" sha256="%s" />\n' % (rights_id + '.enctitlekey.tik', etk['size'], etk['crc'], etk['md5'], etk['sha1'], etk['sha256'])
+
+                    # Add decrypted titlekey info.
+                    rom_str += '      <rom name="%s" format="CDN,CDNMeta" version="0" size="%d" crc="%s" md5="%s" sha1="%s" sha256="%s" />\n' % (rights_id + '.dectitlekey.tik', dtk['size'], dtk['crc'], dtk['md5'], dtk['sha1'], dtk['sha256'])
+
+                # Update title string.
+                title_str += rom_str
+                title_str += '    </source>\n'
+                title_str += '  </game>\n'
+
+                # Write metadata.
+                xml_file.write(title_str)
+
+        # Write XML footer.
+        xml_file.write(XML_FOOTER)
+
+    print('Successfully saved output XML dataset to "%s".' % (xml_path))
+
+def utilsProcessNspDir(nspdir: str, hactool: str, keys: str, outdir: str, exclude_nsp: bool, section: str, dump_date: str, release_date: str, dumper: str, project: str, tool: str, region: str) -> None:
+    nsp_list: List = []
+
+    # Get NSP file list.
+    file_list = utilsGetFileList(nspdir, 'nsp', True)
+    if not file_list: raise Exception("Error: input directory holds no NSP files.")
 
     # Process NSP files.
-    for nsp in nsp_list:
+    for nsp in file_list:
         print('Processing "%s"...' % (os.path.basename(nsp[0])))
 
-        nsp_dict = utilsProcessNspFile(hactool, keys, outdir, nsp)
-        if not nsp_dict: continue
+        nsp_info = utilsProcessNspFile(hactool, keys, outdir, nsp, exclude_nsp)
+        if not nsp_info:
+            print('')
+            continue
 
-        pp.pprint(nsp_dict)
+        # Update NSP list.
+        nsp_list.append(nsp_info)
+        print('')
+
+    # Generate output XML dataset.
+    if nsp_list: utilsGenerateXmlDataset(nsp_list, outdir, exclude_nsp, section, dump_date, release_date, dumper, project, tool, region)
 
 def main() -> int:
     # Get git commit information.
     utilsGetGitInfo()
 
-    parser = ArgumentParser(description='Generate a XML dataset from Nintendo Submission Package (NSP) files.')
+    parser = argparse.ArgumentParser(description='Generate a XML dataset from Nintendo Submission Package (NSP) files.')
     parser.add_argument('--nspdir', type=str, metavar='DIR', help='Path to directory with NSP files. Defaults to "' + NSP_PATH + '".')
     parser.add_argument('--hactool', type=str, metavar='FILE', help='Path to hactool binary. Defaults to "' + HACTOOL_PATH + '".')
     parser.add_argument('--keys', type=str, metavar='FILE', help='Path to Nintendo Switch keys file. Defaults to "' + KEYS_PATH + '".')
     parser.add_argument('--outdir', type=str, metavar='DIR', help='Path to output directory. Defaults to "' + OUTPUT_PATH + '".')
+    parser.add_argument('--exclude-nsp', action='store_true', default=False, help='Excludes NSP metadata from the output XML dataset. Turned off by default if not provided.')
+    parser.add_argument('--section', type=str, default='', help='Section string used in the output XML dataset. Optional.')
+    parser.add_argument('--dump-date', type=datetime.date.fromisoformat, default=argparse.SUPPRESS, help='Dump date used in the output XML dataset. Defaults to current date if not provided.')
+    parser.add_argument('--release-date', type=datetime.date.fromisoformat, default=argparse.SUPPRESS, help='Release date used in the output XML dataset. Optional.')
+    parser.add_argument('--dumper', type=str, default=DEFAULT_DUMPER, help='Dumper string used in the output XML dataset. Defaults to "' + DEFAULT_DUMPER + '" if not provided.')
+    parser.add_argument('--project', type=str, default=DEFAULT_PROJECT, help='Project string used in the output XML dataset. Defaults to "' + DEFAULT_PROJECT + '" if not provided.')
+    parser.add_argument('--tool', type=str, default=DEFAULT_TOOL, help='Tool string used in the output XML dataset. Defaults to "' + DEFAULT_TOOL + '" if not provided.')
+    parser.add_argument('--region', type=str, default=DEFAULT_REGION, help='Region string used in the output XML dataset. Defaults to "' + DEFAULT_REGION + '" if not provided.')
 
     print(SCRIPT_NAME + '.\nRevision: ' + GIT_REV + '.\nMade by DarkMatterCore.\n')
 
@@ -530,9 +649,17 @@ def main() -> int:
     hactool = utilsGetPath(args.hactool, os.path.join(INITIAL_DIR, HACTOOL_PATH), True)
     keys = utilsGetPath(args.keys, KEYS_PATH, True)
     outdir = utilsGetPath(args.outdir, os.path.join(INITIAL_DIR, OUTPUT_PATH), False, True)
+    exclude_nsp = args.exclude_nsp
+    section = args.section
+    dump_date = (args.dump_date.isoformat() if "dump_date" in args else '')
+    release_date = (args.release_date.isoformat() if "release_date" in args else '')
+    dumper = args.dumper
+    project = args.project
+    tool = args.tool
+    region = args.region
 
     # Do our thing.
-    utilsProcessNspDir(nspdir, hactool, keys, outdir)
+    utilsProcessNspDir(nspdir, hactool, keys, outdir, exclude_nsp, section, dump_date, release_date, dumper, project, tool, region)
 
     return 0
 
