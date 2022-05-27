@@ -382,9 +382,9 @@ def utilsBuildNspTitleList(ext_nsp_dir: str, hactool: str, keys: str) -> List:
             # Generate content filename.
             content_filename = packaged_content_info.info.id.hex().lower() + '.nca'
             content_path = os.path.join(ext_nsp_dir, content_filename)
-            content_type = utilsCapitalizeString(Cnmt.ContentType(packaged_content_info.info.type).name, ' ')
+            content_type = Cnmt.ContentType(packaged_content_info.info.type).name
 
-            print('\t- Parsing %s NCA: "%s".' % (content_type, content_filename))
+            print('\t- Parsing %s NCA: "%s".' % (utilsCapitalizeString(content_type, ' '), content_filename))
 
             # Retrieve NCA information using hactool.
             nca_info = utilsGetNcaInfo(hactool, keys, content_path, enc_titlekey['value'])
@@ -432,6 +432,9 @@ def utilsBuildNspTitleList(ext_nsp_dir: str, hactool: str, keys: str) -> List:
             if (packaged_content_info.info.id != packaged_content_info.hash[:16]) or (packaged_content_info.info.id.hex().lower() != nca_info['sha256'][:32]):
                 print('\t\t- Error: content ID / hash mismatch.')
                 continue
+
+            # Replace NCA info's content type with the type stored in the CNMT, because it's more descriptive.
+            nca_info['cnt_type'] = content_type
 
             # Append NCA info.
             contents.append(nca_info)
@@ -569,7 +572,10 @@ def utilsGenerateXmlDataset(nsp_list: List, outdir: str, exclude_nsp: bool, sect
                     if cnt['cnt_type'] == 'meta': cnt_filename += '.cnmt'
                     cnt_filename += '.nca'
 
-                    rom_str += '      <rom name="%s" format="CDN,CDNMeta" version="%d" size="%d" crc="%s" md5="%s" sha1="%s" sha256="%s" />\n' % (cnt_filename, title['version'], cnt['size'], cnt['crc'], cnt['md5'], cnt['sha1'], cnt['sha256'])
+                    cnt_format = 'CDN'
+                    if (cnt['cnt_type'] != 'program') and (cnt['cnt_type'] != 'data') and (cnt['cnt_type'] != 'delta_fragment'): cnt_format += ',CDNMeta'
+
+                    rom_str += '      <rom name="%s" format="%s" version="%d" size="%d" crc="%s" md5="%s" sha1="%s" sha256="%s" />\n' % (cnt_filename, cnt_format, title['version'], cnt['size'], cnt['crc'], cnt['md5'], cnt['sha1'], cnt['sha256'])
 
                 crypto = title['crypto']
                 if crypto['rights_id'] and crypto['ticket']:
@@ -579,13 +585,13 @@ def utilsGenerateXmlDataset(nsp_list: List, outdir: str, exclude_nsp: bool, sect
                     dtk = crypto['dec_titlekey']
 
                     # Add ticket info.
-                    rom_str += '      <rom name="%s" format="CDN,CDNMeta" version="0" size="%d" crc="%s" md5="%s" sha1="%s" sha256="%s" />\n' % (rights_id + '.tik', tik['size'], tik['crc'], tik['md5'], tik['sha1'], tik['sha256'])
+                    rom_str += '      <rom name="%s" format="CDN" version="0" size="%d" crc="%s" md5="%s" sha1="%s" sha256="%s" />\n' % (rights_id + '.tik', tik['size'], tik['crc'], tik['md5'], tik['sha1'], tik['sha256'])
 
                     # Add encrypted titlekey info.
-                    rom_str += '      <rom name="%s" format="CDN,CDNMeta" version="0" size="%d" crc="%s" md5="%s" sha1="%s" sha256="%s" />\n' % (rights_id + '.enctitlekey.tik', etk['size'], etk['crc'], etk['md5'], etk['sha1'], etk['sha256'])
+                    rom_str += '      <rom name="%s" format="CDN" version="0" size="%d" crc="%s" md5="%s" sha1="%s" sha256="%s" />\n' % (rights_id + '.enctitlekey.tik', etk['size'], etk['crc'], etk['md5'], etk['sha1'], etk['sha256'])
 
                     # Add decrypted titlekey info.
-                    rom_str += '      <rom name="%s" format="CDN,CDNMeta" version="0" size="%d" crc="%s" md5="%s" sha1="%s" sha256="%s" />\n' % (rights_id + '.dectitlekey.tik', dtk['size'], dtk['crc'], dtk['md5'], dtk['sha1'], dtk['sha256'])
+                    rom_str += '      <rom name="%s" format="CDN" version="0" size="%d" crc="%s" md5="%s" sha1="%s" sha256="%s" />\n' % (rights_id + '.dectitlekey.tik', dtk['size'], dtk['crc'], dtk['md5'], dtk['sha1'], dtk['sha256'])
 
                 # Update title string.
                 title_str += rom_str
