@@ -526,11 +526,13 @@ def utilsProcessNspFile(hactool: str, keys: str, outdir: str, nsp: List, exclude
 
     return nsp_info
 
-def utilsGenerateXmlDataset(nsp_list: List, outdir: str, exclude_nsp: bool, section: str, dump_date: str, release_date: str, dumper: str, project: str, tool: str, region: str) -> None:
+def utilsGenerateXmlDataset(nsp_list: List, outdir: str, exclude_nsp: bool, section: str, dump_date: str, release_date: str, dumper: str, project: str, tool: str, region: str, include_comment: bool) -> None:
     dump_date_provided = (len(dump_date) > 0)
     if not dump_date_provided: dump_date = datetime.datetime.now().date().isoformat()
 
     release_date_provided = (len(release_date) > 0)
+
+    comment2_str = (DEFAULT_COMMENT2 if include_comment else '')
 
     # Escape ampersand characters.
     section = section.replace('&', HTML_AMPERSAND)
@@ -538,6 +540,7 @@ def utilsGenerateXmlDataset(nsp_list: List, outdir: str, exclude_nsp: bool, sect
     project = project.replace('&', HTML_AMPERSAND)
     tool = tool.replace('&', HTML_AMPERSAND)
     region = region.replace('&', HTML_AMPERSAND)
+    comment2_str = comment2_str.replace('&', HTML_AMPERSAND)
 
     # Open output XML file.
     xml_path = os.path.join(outdir, OUTPUT_XML_NAME)
@@ -579,7 +582,7 @@ def utilsGenerateXmlDataset(nsp_list: List, outdir: str, exclude_nsp: bool, sect
                     title_str += '    </media>\n'
 
                 title_str += '    <source>\n'
-                title_str += '      <details section="%s" rominfo="" originalformat="NSP" dumpdate="%s" knowndumpdate="%d" releasedate="%s" knownreleasedate="%d" dumper="%s" project="%s" tool="%s" region="%s" origin="" comment1="" comment2="%s" link1="" link2="" mediatitle="" />\n' % (section, dump_date, int(dump_date_provided), release_date, int(release_date_provided), dumper, project, tool, region, DEFAULT_COMMENT2)
+                title_str += '      <details section="%s" rominfo="" originalformat="NSP" dumpdate="%s" knowndumpdate="%d" releasedate="%s" knownreleasedate="%d" dumper="%s" project="%s" tool="%s" region="%s" origin="" comment1="" comment2="%s" link1="" link2="" mediatitle="" />\n' % (section, dump_date, int(dump_date_provided), release_date, int(release_date_provided), dumper, project, tool, region, comment2_str)
                 title_str += '      <serials mediaserial1="" mediaserial2="" pcbserial="" romchipserial1="" romchipserial2="" lockoutserial="" savechipserial="" chipserial="" boxserial="" mediastamp="" boxbarcode="" digitalserial1="%s" digitalserial2="" />\n' % (title['title_id'])
 
                 # Generate ROM entries.
@@ -629,7 +632,7 @@ def utilsGenerateXmlDataset(nsp_list: List, outdir: str, exclude_nsp: bool, sect
 
     print('Successfully saved output XML dataset to "%s".' % (xml_path), flush=True)
 
-def utilsProcessNspDir(nspdir: str, hactool: str, keys: str, outdir: str, exclude_nsp: bool, section: str, dump_date: str, release_date: str, dumper: str, project: str, tool: str, region: str) -> None:
+def utilsProcessNspDir(nspdir: str, hactool: str, keys: str, outdir: str, exclude_nsp: bool, section: str, dump_date: str, release_date: str, dumper: str, project: str, tool: str, region: str, include_comment: bool) -> None:
     nsp_list: List = []
 
     # Get NSP file list.
@@ -650,7 +653,7 @@ def utilsProcessNspDir(nspdir: str, hactool: str, keys: str, outdir: str, exclud
         print('')
 
     # Generate output XML dataset.
-    if nsp_list: utilsGenerateXmlDataset(nsp_list, outdir, exclude_nsp, section, dump_date, release_date, dumper, project, tool, region)
+    if nsp_list: utilsGenerateXmlDataset(nsp_list, outdir, exclude_nsp, section, dump_date, release_date, dumper, project, tool, region, include_comment)
 
 def main() -> int:
     # Get git commit information.
@@ -661,7 +664,7 @@ def main() -> int:
     parser.add_argument('--hactool', type=str, metavar='FILE', help='Path to hactool binary. Defaults to "' + HACTOOL_PATH + '".')
     parser.add_argument('--keys', type=str, metavar='FILE', help='Path to Nintendo Switch keys file. Defaults to "' + KEYS_PATH + '".')
     parser.add_argument('--outdir', type=str, metavar='DIR', help='Path to output directory. Defaults to "' + OUTPUT_PATH + '".')
-    parser.add_argument('--exclude-nsp', action='store_true', default=False, help='Excludes NSP metadata from the output XML dataset. Turned off by default if not provided.')
+    parser.add_argument('--exclude-nsp', action='store_true', default=False, help='Excludes NSP metadata from the output XML dataset. Disabled by default.')
     parser.add_argument('--section', type=str, default='', help='Section string used in the output XML dataset. Optional.')
     parser.add_argument('--dump-date', type=datetime.date.fromisoformat, default=argparse.SUPPRESS, help='Dump date used in the output XML dataset. Defaults to current date if not provided.')
     parser.add_argument('--release-date', type=datetime.date.fromisoformat, default=argparse.SUPPRESS, help='Release date used in the output XML dataset. Optional.')
@@ -669,6 +672,7 @@ def main() -> int:
     parser.add_argument('--project', type=str, default=DEFAULT_PROJECT, help='Project string used in the output XML dataset. Defaults to "' + DEFAULT_PROJECT + '" if not provided.')
     parser.add_argument('--tool', type=str, default=DEFAULT_TOOL, help='Tool string used in the output XML dataset. Defaults to "' + DEFAULT_TOOL + '" if not provided.')
     parser.add_argument('--region', type=str, default=DEFAULT_REGION, help='Region string used in the output XML dataset. Defaults to "' + DEFAULT_REGION + '" if not provided.')
+    parser.add_argument('--include-comment', action='store_true', default=False, help='Sets the comment2 value to a string that holds information about this script. Disabled by default.')
 
     print(SCRIPT_NAME + '.\nRevision: ' + GIT_REV + '.\nMade by DarkMatterCore.\n')
 
@@ -686,9 +690,10 @@ def main() -> int:
     project = args.project
     tool = args.tool
     region = args.region
+    include_comment = args.include_comment
 
     # Do our thing.
-    utilsProcessNspDir(nspdir, hactool, keys, outdir, exclude_nsp, section, dump_date, release_date, dumper, project, tool, region)
+    utilsProcessNspDir(nspdir, hactool, keys, outdir, exclude_nsp, section, dump_date, release_date, dumper, project, tool, region, include_comment)
 
     return 0
 
