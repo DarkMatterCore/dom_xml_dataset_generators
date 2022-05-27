@@ -376,6 +376,8 @@ def utilsBuildNspTitleList(ext_nsp_dir: str, hactool: str, keys: str) -> List:
         # Parse CNMT file.
         cnmt = Cnmt.from_file(cnmt_path)
         for i in range(cnmt.header.content_count):
+            sys.stdout.flush()
+
             # Get current content info entry.
             packaged_content_info = cnmt.packaged_content_infos[i]
 
@@ -484,6 +486,8 @@ def utilsBuildNspTitleList(ext_nsp_dir: str, hactool: str, keys: str) -> List:
 
         # Close CNMT.
         cnmt.close()
+
+        sys.stdout.flush()
 
     # Close directory scan.
     dir_scan.close()
@@ -604,7 +608,7 @@ def utilsGenerateXmlDataset(nsp_list: List, outdir: str, exclude_nsp: bool, sect
         # Write XML footer.
         xml_file.write(XML_FOOTER)
 
-    print('Successfully saved output XML dataset to "%s".' % (xml_path))
+    print('Successfully saved output XML dataset to "%s".' % (xml_path), flush=True)
 
 def utilsProcessNspDir(nspdir: str, hactool: str, keys: str, outdir: str, exclude_nsp: bool, section: str, dump_date: str, release_date: str, dumper: str, project: str, tool: str, region: str) -> None:
     nsp_list: List = []
