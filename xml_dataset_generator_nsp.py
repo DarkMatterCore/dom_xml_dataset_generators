@@ -89,6 +89,7 @@ XML_HEADER +=     '  </header>\n'
 XML_FOOTER: str = '</datafile>\n'
 
 HTML_LINE_BREAK:  str = '&#xA;'
+HTML_AMPERSAND:   str = '&amp;'
 
 DEFAULT_DUMPER:   str = '!unknown'
 DEFAULT_PROJECT:  str = '!unknown'
@@ -531,6 +532,14 @@ def utilsGenerateXmlDataset(nsp_list: List, outdir: str, exclude_nsp: bool, sect
 
     release_date_provided = (len(release_date) > 0)
 
+    # Escape ampersand characters.
+    section = section.replace('&', HTML_AMPERSAND)
+    dumper = dumper.replace('&', HTML_AMPERSAND)
+    project = project.replace('&', HTML_AMPERSAND)
+    tool = tool.replace('&', HTML_AMPERSAND)
+    region = region.replace('&', HTML_AMPERSAND)
+
+    # Open output XML file.
     xml_path = os.path.join(outdir, OUTPUT_XML_NAME)
     with open(xml_path, 'w') as xml_file:
         # Write XML file header.
@@ -540,6 +549,14 @@ def utilsGenerateXmlDataset(nsp_list: List, outdir: str, exclude_nsp: bool, sect
         for entry in nsp_list:
             # Process titles available in current NSP.
             for title in entry['titles']:
+                nsp = (None if (not exclude_nsp) else entry['nsp'])
+
+                # Escape ampersand characters.
+                if title['display_name']: title['display_name'] = title['display_name'].replace('&', HTML_AMPERSAND)
+                if title['publisher']: title['publisher'] = title['publisher'].replace('&', HTML_AMPERSAND)
+                if title['display_version']: title['display_version'] = title['display_version'].replace('&', HTML_AMPERSAND)
+                if nsp: nsp['filename'] = nsp['filename'].replace('&', HTML_AMPERSAND)
+
                 # Generate metadata.
                 archive_name = title['display_name']
                 if not archive_name: archive_name = title['title_id']
@@ -568,9 +585,8 @@ def utilsGenerateXmlDataset(nsp_list: List, outdir: str, exclude_nsp: bool, sect
                 # Generate ROM entries.
                 rom_str = ''
 
-                if not exclude_nsp:
+                if nsp:
                     # Add NSP information.
-                    nsp = entry['nsp']
                     rom_str += '      <rom name="%s" format="NSP" version="%d" size="%d" crc="%s" md5="%s" sha1="%s" sha256="%s" />\n' % (nsp['filename'], title['version'], nsp['size'], nsp['crc'], nsp['md5'], nsp['sha1'], nsp['sha256'])
 
                 for cnt in title['contents']:
