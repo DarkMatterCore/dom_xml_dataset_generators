@@ -184,10 +184,19 @@ def utilsExtractNcaFsSection(nca_path: str, hactool: str, keys: str, outdir: str
     proc = utilsRunHactool(hactool, keys, 'nca', ['--section' + str(idx) + 'dir=' + outdir, nca_path])
     if (not proc.stdout) or (proc.returncode != 0) or (not os.path.exists(outdir)): raise Exception('Error: failed to extract section %d from NCA "%s".' % (idx, os.path.basename(nca_path)))
 
-def utilsGetFileList(dir: str, extension: str, recursive: bool = False) -> List:
-    file_list: List = []
+def utilsConvertNszToNsp(outdir: str, nsz_path: str) -> str:
+    nsz_args = ['nsz', '-D', '-o', outdir, nsz_path]
+    nsp_path = os.path.join(outdir, nsz_path[:-4] + '.nsp')
+    proc = subprocess.run(nsz_args, capture_output=True, encoding='utf-8')
+    if (not proc.stdout) or (proc.returncode != 0) or (not os.path.exists(nsp_path)): raise Exception('Error: failed to convert NSZ "%s" to NSP.' % (os.path.basename(nsz_path)))
+    return nsp_path
 
-    extension = extension.lower().strip().strip('.')
+def utilsCopyKeysFile(keys: str) -> None:
+    hactool_keys_path = os.path.abspath(os.path.expanduser(os.path.expandvars(KEYS_PATH)))
+    if keys != hactool_keys_path: shutil.copyfile(keys, hactool_keys_path)
+
+def utilsGetFileList(dir: str, recursive: bool = False) -> List:
+    file_list: List = []
 
     # Scan directory.
     dir_scan = os.scandir(dir)
@@ -195,7 +204,8 @@ def utilsGetFileList(dir: str, extension: str, recursive: bool = False) -> List:
     # Get available files.
     for entry in dir_scan:
         # Skip directories and files that don't match our criteria.
-        if (entry.is_dir() and (not recursive)) or (not entry.name.lower().endswith('.' + extension)): continue
+        entry_name = entry.name.lower()
+        if (entry.is_dir() and (not recursive)) or (not (entry_name.endswith('.nsp') or entry_name.endswith('.nsz'))): continue
 
         if entry.is_file():
             # Skip empty files.
@@ -205,7 +215,7 @@ def utilsGetFileList(dir: str, extension: str, recursive: bool = False) -> List:
             # Update list.
             file_list.append([entry.path, file_size])
         else:
-            file_list.extend(utilsGetFileList(entry.path, extension, True))
+            file_list.extend(utilsGetFileList(entry.path, True))
 
     return file_list
 
@@ -498,6 +508,12 @@ def utilsBuildNspTitleList(ext_nsp_dir: str, hactool: str, keys: str) -> List:
 def utilsProcessNspFile(hactool: str, keys: str, outdir: str, nsp: List, exclude_nsp: bool) -> Dict:
     nsp_info: Dict = {}
     nsp_path, nsp_size = nsp
+    orig_nsp_path = nsp_path
+
+    # Convert NSZ back to NSP, if needed.
+    if nsp_path.lower().endswith('.nsz'):
+        nsp_path = utilsConvertNszToNsp(outdir, nsp_path)
+        nsp_size = os.path.getsize(nsp_path)
 
     if not exclude_nsp:
         # Get NSP info.
@@ -517,6 +533,9 @@ def utilsProcessNspFile(hactool: str, keys: str, outdir: str, nsp: List, exclude
 
     # Delete extracted data.
     shutil.rmtree(ext_nsp_dir)
+
+    # Delete NSP, if needed.
+    if nsp_path != orig_nsp_path: os.remove(nsp_path)
 
     # Check if we actually retrieved meaningful data.
     if not nsp_title_list: return {}
@@ -634,10 +653,11 @@ def utilsGenerateXmlDataset(nsp_list: List, outdir: str, exclude_nsp: bool, sect
 
 def utilsProcessNspDir(nspdir: str, hactool: str, keys: str, outdir: str, exclude_nsp: bool, section: str, dump_date: str, release_date: str, dumper: str, project: str, tool: str, region: str, include_comment: bool) -> None:
     nsp_list: List = []
+    file_list: List = []
 
-    # Get NSP file list.
-    file_list = utilsGetFileList(nspdir, 'nsp', True)
-    if not file_list: raise Exception("Error: input directory holds no NSP files.")
+    # Get NSP/NSZ file list.
+    file_list = utilsGetFileList(nspdir, True)
+    if not file_list: raise Exception("Error: input directory holds no NSP/NSZ files.")
 
     # Process NSP files.
     for nsp in file_list:
@@ -691,6 +711,12 @@ def main() -> int:
     tool = args.tool
     region = args.region
     include_comment = args.include_comment
+
+    # Check if nsz has been installed.
+    if not shutil.which('nsz'): raise Exception('Error: "nsz" package isn\'t installed.')
+
+    # Copy keys file (required by nsz since it offers no way to provide a keys file path).
+    utilsCopyKeysFile(keys)
 
     # Do our thing.
     utilsProcessNspDir(nspdir, hactool, keys, outdir, exclude_nsp, section, dump_date, release_date, dumper, project, tool, region, include_comment)
