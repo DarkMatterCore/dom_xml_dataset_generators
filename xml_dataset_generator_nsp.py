@@ -184,12 +184,16 @@ def utilsExtractNcaFsSection(nca_path: str, hactool: str, keys: str, outdir: str
     proc = utilsRunHactool(hactool, keys, 'nca', ['--section' + str(idx) + 'dir=' + outdir, nca_path])
     if (not proc.stdout) or (proc.returncode != 0) or (not os.path.exists(outdir)): raise Exception('Error: failed to extract section %d from NCA "%s".' % (idx, os.path.basename(nca_path)))
 
-def utilsConvertNszToNsp(outdir: str, nsz_path: str) -> str:
+def utilsConvertNszToNsp(outdir: str, nsz_path: str) -> List:
     nsz_args = ['nsz', '-D', '-o', outdir, nsz_path]
     nsp_path = os.path.join(outdir, nsz_path[:-4] + '.nsp')
+
     proc = subprocess.run(nsz_args, capture_output=True, encoding='utf-8')
-    if (not proc.stdout) or (proc.returncode != 0) or (not os.path.exists(nsp_path)): raise Exception('Error: failed to convert NSZ "%s" to NSP.' % (os.path.basename(nsz_path)))
-    return nsp_path
+    nsp_size = (os.path.getsize(nsp_path) if os.path.exists(nsp_path) else 0)
+
+    if (not proc.stdout) or (proc.returncode != 0) or (not nsp_size): raise Exception('Error: failed to convert NSZ "%s" to NSP.' % (os.path.basename(nsz_path)))
+
+    return [nsp_path, nsp_size]
 
 def utilsCopyKeysFile(keys: str) -> None:
     hactool_keys_path = os.path.abspath(os.path.expanduser(os.path.expandvars(KEYS_PATH)))
@@ -511,9 +515,7 @@ def utilsProcessNspFile(hactool: str, keys: str, outdir: str, nsp: List, exclude
     orig_nsp_path = nsp_path
 
     # Convert NSZ back to NSP, if needed.
-    if nsp_path.lower().endswith('.nsz'):
-        nsp_path = utilsConvertNszToNsp(outdir, nsp_path)
-        nsp_size = os.path.getsize(nsp_path)
+    if nsp_path.lower().endswith('.nsz'): nsp_path, nsp_size = utilsConvertNszToNsp(outdir, nsp_path)
 
     if not exclude_nsp:
         # Get NSP info.
