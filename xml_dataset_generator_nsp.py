@@ -513,15 +513,26 @@ def utilsProcessNspFile(hactool: str, keys: str, outdir: str, nsp: List, exclude
     nsp_info: Dict = {}
     nsp_path, nsp_size = nsp
     orig_nsp_path = nsp_path
+    is_nsz = orig_nsp_path.lower().endswith('.nsz')
+    temp_path = ''
+
+    # Handle filenames with non-ASCII codepoints.
+    try:
+        ascii = orig_nsp_path.encode('ascii')
+    except Exception:
+        # Rename NSP.
+        temp_path = os.path.join(os.path.split(orig_nsp_path)[0], utilsGetRandomString(16) + os.path.splitext(orig_nsp_path)[1])
+        os.rename(orig_nsp_path, temp_path)
+        nsp_path = temp_path
 
     # Convert NSZ back to NSP, if needed.
-    if nsp_path.lower().endswith('.nsz'): nsp_path, nsp_size = utilsConvertNszToNsp(outdir, nsp_path)
+    if is_nsz: nsp_path, nsp_size = utilsConvertNszToNsp(outdir, nsp_path)
 
     if not exclude_nsp:
         # Get NSP info.
         nsp_properties = utilsCalculateFileChecksums(nsp_path)
         nsp_properties.update({
-            'filename': os.path.basename(nsp_path),
+            'filename': os.path.splitext(os.path.basename(orig_nsp_path))[0] + '.nsp',
             'size': nsp_size
         })
         nsp_info.update({ 'nsp': nsp_properties })
@@ -537,7 +548,10 @@ def utilsProcessNspFile(hactool: str, keys: str, outdir: str, nsp: List, exclude
     shutil.rmtree(ext_nsp_dir)
 
     # Delete NSP, if needed.
-    if nsp_path != orig_nsp_path: os.remove(nsp_path)
+    if is_nsz: os.remove(nsp_path)
+
+    # Rename NSP, if needed.
+    if temp_path: os.rename(temp_path, orig_nsp_path)
 
     # Check if we actually retrieved meaningful data.
     if not nsp_title_list: return {}
@@ -565,7 +579,7 @@ def utilsGenerateXmlDataset(nsp_list: List, outdir: str, exclude_nsp: bool, sect
 
     # Open output XML file.
     xml_path = os.path.join(outdir, OUTPUT_XML_NAME)
-    with open(xml_path, 'w') as xml_file:
+    with open(xml_path, 'w', encoding='utf-8') as xml_file:
         # Write XML file header.
         xml_file.write(XML_HEADER)
 
