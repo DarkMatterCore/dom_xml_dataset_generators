@@ -387,7 +387,8 @@ def utilsBuildNspTitleList(ext_nsp_dir: str, hactool: str, keys: str) -> List:
             if not nca_info: continue
 
             # Check if we're missing the titlekey.
-            if (not nca_info['verify']) and (nca_info['crypto_type'] == 'titlekey') and (not rights_id):
+            titlekey_needed = ((nca_info['crypto_type'] == 'titlekey') and nca_info['rights_id'] and (not rights_id))
+            if titlekey_needed:
                 # Set rights ID for this title.
                 rights_id = nca_info['rights_id']
 
@@ -407,9 +408,10 @@ def utilsBuildNspTitleList(ext_nsp_dir: str, hactool: str, keys: str) -> List:
                 # Close ticket.
                 tik.close()
 
-                # Parse NCA once more.
-                nca_info = utilsGetNcaInfo(hactool, keys, content_path, enc_titlekey['value'])
-                if not nca_info: continue
+                # Parse NCA once more, if needed.
+                if not nca_info['verify']:
+                    nca_info = utilsGetNcaInfo(hactool, keys, content_path, enc_titlekey['value'])
+                    if not nca_info: continue
 
                 # Set decrypted titlekey.
                 dec_titlekey['value'] = nca_info['dec_titlekey']
