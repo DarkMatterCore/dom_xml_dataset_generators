@@ -36,6 +36,7 @@ from cnmt import Cnmt
 from tik import Tik
 from nacp import Nacp
 import datetime
+import glob
 
 import argparse
 from typing import List, Union, Tuple, Dict, Pattern, TYPE_CHECKING
@@ -245,28 +246,8 @@ def utilsCalculateFileChecksums(file: str) -> Dict:
         'crc': '{:08x}'.format(crc32_hash),
         'md5': md5_hash.hexdigest().lower(),
         'sha1': sha1_hash.hexdigest().lower(),
-        'sha256': sha256_hash.hexdigest().lower()
-    }
-
-    return checksums
-
-def utilsCalculateDataChecksums(data: bytes) -> Dict:
-    crc32_hash = 0
-    md5_hash = hashlib.md5()
-    sha1_hash = hashlib.sha1()
-    sha256_hash = hashlib.sha256()
-
-    # Calculate checksums.
-    crc32_hash = zlib.crc32(data, crc32_hash)
-    md5_hash.update(data)
-    sha1_hash.update(data)
-    sha256_hash.update(data)
-
-    checksums = {
-        'crc': '{:08x}'.format(crc32_hash),
-        'md5': md5_hash.hexdigest().lower(),
-        'sha1': sha1_hash.hexdigest().lower(),
-        'sha256': sha256_hash.hexdigest().lower()
+        'sha256': sha256_hash.hexdigest().lower(),
+        'size': os.path.getsize(file)
     }
 
     return checksums
@@ -332,11 +313,9 @@ def utilsGetNcaInfo(hactool: str, keys: str, nca_path: str, titlekey: str = '', 
     file_checksums = utilsCalculateFileChecksums(nca_path)
     nca_info = nca_info | file_checksums
 
-    # Set missing NCA properties.
-    nca_info.update({
-        'size': os.path.getsize(nca_path),
-        'cnt_id': file_checksums['sha256'][:32] # Content IDs are just the first half of the NCA's SHA-256 checksum.
-    })
+    # Set NCA ID.
+    # Content IDs are just the first half of the NCA's SHA-256 checksum.
+    nca_info.update({ 'cnt_id': file_checksums['sha256'][:32] })
 
     return nca_info
 
@@ -435,15 +414,27 @@ def utilsBuildNspTitleList(ext_nsp_dir: str, hactool: str, keys: str) -> List:
                 # Set decrypted titlekey.
                 dec_titlekey['value'] = nca_info['dec_titlekey']
 
-                # Calculate checksums.
+                # Calculate ticket checksums.
                 ticket = utilsCalculateFileChecksums(tik_path)
-                ticket.update({ 'size': os.path.getsize(tik_path) })
+                ticket.update({ 'filename': tik_filename })
 
-                enc_titlekey = enc_titlekey | utilsCalculateDataChecksums(bytes.fromhex(enc_titlekey['value']))
-                enc_titlekey.update({ 'size': 16 })
+                # Generate encrypted titlekey properties.
+                enc_titlekey_filename = rights_id + '.enctitlekey.tik'
+                enc_titlekey_path = os.path.join(ext_nsp_dir, enc_titlekey_filename)
+                with open(enc_titlekey_path, 'wb') as etk: etk.write(bytes.fromhex(enc_titlekey['value']))
+                enc_titlekey = enc_titlekey | utilsCalculateFileChecksums(enc_titlekey_path)
+                enc_titlekey.update({ 'filename': enc_titlekey_filename })
 
-                dec_titlekey = dec_titlekey | utilsCalculateDataChecksums(bytes.fromhex(dec_titlekey['value']))
-                dec_titlekey.update({ 'size': 16 })
+                # Generate decrypted titlekey properties.
+                dec_titlekey_filename = rights_id + '.dectitlekey.tik'
+                dec_titlekey_path = os.path.join(ext_nsp_dir, dec_titlekey_filename)
+                with open(dec_titlekey_path, 'wb') as dtk: dtk.write(bytes.fromhex(dec_titlekey['value']))
+                dec_titlekey = dec_titlekey | utilsCalculateFileChecksums(dec_titlekey_path)
+                dec_titlekey.update({ 'filename': dec_titlekey_filename })
+
+                # Remove cert file.
+                cert_path = os.path.join(ext_nsp_dir, rights_id + '.cert')
+                if os.path.exists(cert_path): os.remove(cert_path)
 
             # Verify content ID.
             if (packaged_content_info.info.id != packaged_content_info.hash[:16]) or (packaged_content_info.info.id.hex().lower() != nca_info['sha256'][:32]):
@@ -462,7 +453,8 @@ def utilsBuildNspTitleList(ext_nsp_dir: str, hactool: str, keys: str) -> List:
                 utilsExtractNcaFsSection(content_path, hactool, keys, ext_nsp_dir, 0)
 
                 # Parse NACP file.
-                nacp = Nacp.from_file(os.path.join(ext_nsp_dir, 'control.nacp'))
+                nacp_path = os.path.join(ext_nsp_dir, 'control.nacp')
+                nacp = Nacp.from_file(nacp_path)
 
                 # Get relevant info.
                 display_name = nacp.title[Nacp.Language.american_english.value].name
@@ -476,8 +468,13 @@ def utilsBuildNspTitleList(ext_nsp_dir: str, hactool: str, keys: str) -> List:
                         dom_lang = DOM_LANGUAGES.get(utilsCapitalizeString(data.name), '')
                         if dom_lang: supported_languages.append(dom_lang)
 
-                # Close NACP.
+                # Close and delete NACP.
                 nacp.close()
+                os.remove(nacp_path)
+
+                # Delete DAT files.
+                dat_list = glob.glob(os.path.join(ext_nsp_dir, '*.dat'))
+                for dat in dat_list: os.remove(dat)
 
         if success:
             # Update output list.
@@ -499,8 +496,9 @@ def utilsBuildNspTitleList(ext_nsp_dir: str, hactool: str, keys: str) -> List:
                 'contents': contents
             })
 
-        # Close CNMT.
+        # Close and delete CNMT.
         cnmt.close()
+        os.remove(cnmt_path)
 
         sys.stdout.flush()
 
@@ -515,6 +513,7 @@ def utilsProcessNspFile(args: argparse.Namespace, nsp: List) -> Dict:
     orig_nsp_path = nsp_path
     is_nsz = orig_nsp_path.lower().endswith('.nsz')
     temp_path = ''
+    nsp_filename = os.path.splitext(os.path.basename(orig_nsp_path))[0] + '.nsp'
 
     # Handle filenames with non-ASCII codepoints.
     try:
@@ -531,10 +530,7 @@ def utilsProcessNspFile(args: argparse.Namespace, nsp: List) -> Dict:
     if not args.exclude_nsp:
         # Get NSP info.
         nsp_properties = utilsCalculateFileChecksums(nsp_path)
-        nsp_properties.update({
-            'filename': os.path.splitext(os.path.basename(orig_nsp_path))[0] + '.nsp',
-            'size': nsp_size
-        })
+        nsp_properties.update({ 'filename': nsp_filename })
         nsp_info.update({ 'nsp': nsp_properties })
 
     # Extract NSP.
@@ -544,8 +540,19 @@ def utilsProcessNspFile(args: argparse.Namespace, nsp: List) -> Dict:
     # Build NSP title list from extracted files.
     nsp_title_list = utilsBuildNspTitleList(ext_nsp_dir, args.hactool, args.keys)
 
-    # Delete extracted data.
-    shutil.rmtree(ext_nsp_dir)
+    if args.keep_folders:
+        # Rename extracted NSP directory.
+        new_ext_nsp_dir = os.path.join(args.outdir, nsp_filename)
+        if os.path.exists(new_ext_nsp_dir):
+            if os.path.isdir(new_ext_nsp_dir):
+                shutil.rmtree(new_ext_nsp_dir)
+            else:
+                os.remove(new_ext_nsp_dir)
+
+        os.rename(ext_nsp_dir, new_ext_nsp_dir)
+    else:
+        # Delete extracted data.
+        shutil.rmtree(ext_nsp_dir)
 
     # Delete NSP, if needed.
     if is_nsz: os.remove(nsp_path)
