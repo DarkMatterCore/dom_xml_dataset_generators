@@ -54,7 +54,7 @@ HACTOOL_DISTRIBUTION_TYPE_REGEX  = re.compile(r"^Distribution type:\s+(.+)$", fl
 HACTOOL_CONTENT_TYPE_REGEX       = re.compile(r"^Content Type:\s+(.+)$", flags=(re.MULTILINE | re.IGNORECASE))
 HACTOOL_ENCRYPTION_TYPE_REGEX    = re.compile(r"^Encryption Type:\s+(.+)$", flags=(re.MULTILINE | re.IGNORECASE))
 HACTOOL_RIGHTS_ID_REGEX          = re.compile(r"^Rights ID:\s+([0-9a-f]{32})$", flags=(re.MULTILINE | re.IGNORECASE))
-HACTOOL_DECRYPTED_TITLEKEY_REGEX = re.compile(r"^Titlekey \(Decrypted\) \(From CLI\)\s+([0-9a-f]{32})$", flags=(re.MULTILINE | re.IGNORECASE))
+HACTOOL_DECRYPTED_TITLEKEY_REGEX = re.compile(r"^Titlekey \(Decrypted\)(?: \(From CLI\))?\s+([0-9a-f]{32})$", flags=(re.MULTILINE | re.IGNORECASE))
 HACTOOL_VERIFY_REGEX             = re.compile(r"\(FAIL\)", flags=(re.MULTILINE | re.IGNORECASE))
 HACTOOL_SAVING_REGEX             = re.compile(r"^Saving (.+) to", flags=(re.MULTILINE | re.IGNORECASE))
 
@@ -641,19 +641,18 @@ def utilsGenerateXmlDataset(args: argparse.Namespace, nsp_list: List) -> None:
 
                 crypto = title['crypto']
                 if crypto['rights_id'] and crypto['ticket']:
-                    rights_id = crypto['rights_id']
                     tik = crypto['ticket']
                     etk = crypto['enc_titlekey']
                     dtk = crypto['dec_titlekey']
 
                     # Add ticket info.
-                    rom_str += '      <rom forcename="%s" format="CDN" version="0" size="%d" crc="%s" md5="%s" sha1="%s" sha256="%s" />\n' % (rights_id + '.tik', tik['size'], tik['crc'], tik['md5'], tik['sha1'], tik['sha256'])
+                    rom_str += '      <rom forcename="%s" format="CDN" version="0" size="%d" crc="%s" md5="%s" sha1="%s" sha256="%s" />\n' % (tik['filename'], tik['size'], tik['crc'], tik['md5'], tik['sha1'], tik['sha256'])
 
                     # Add encrypted titlekey info.
-                    rom_str += '      <rom forcename="%s" format="CDN" version="0" size="%d" crc="%s" md5="%s" sha1="%s" sha256="%s" />\n' % (rights_id + '.enctitlekey.tik', etk['size'], etk['crc'], etk['md5'], etk['sha1'], etk['sha256'])
+                    rom_str += '      <rom forcename="%s" format="CDN" version="0" size="%d" crc="%s" md5="%s" sha1="%s" sha256="%s" />\n' % (etk['filename'], etk['size'], etk['crc'], etk['md5'], etk['sha1'], etk['sha256'])
 
                     # Add decrypted titlekey info.
-                    rom_str += '      <rom forcename="%s" format="CDN" version="0" size="%d" crc="%s" md5="%s" sha1="%s" sha256="%s" />\n' % (rights_id + '.dectitlekey.tik', dtk['size'], dtk['crc'], dtk['md5'], dtk['sha1'], dtk['sha256'])
+                    rom_str += '      <rom forcename="%s" format="CDN" version="0" size="%d" crc="%s" md5="%s" sha1="%s" sha256="%s" />\n' % (dtk['filename'], dtk['size'], dtk['crc'], dtk['md5'], dtk['sha1'], dtk['sha256'])
 
                 # Update title string.
                 title_str += rom_str
