@@ -41,9 +41,11 @@ import glob
 import argparse
 from typing import List, Union, Tuple, Dict, Pattern, TYPE_CHECKING
 
-SCRIPT_NAME: str = os.path.basename(sys.argv[0])
+SCRIPT_NAME: str = os.path.basename(__file__)
+SCRIPT_DIR:  str = os.path.abspath(os.path.dirname(__file__))
 
-INITIAL_DIR: str = os.path.abspath(os.path.dirname(__file__))
+CWD:         str = os.getcwd()
+INITIAL_DIR: str = (CWD if CWD != SCRIPT_DIR else SCRIPT_DIR)
 
 NSP_PATH:     str = os.path.join('.', 'nsp')
 HACTOOL_PATH: str = os.path.join('.', ('hactool.exe' if os.name == 'nt' else 'hactool'))
@@ -128,7 +130,7 @@ def utilsCapitalizeString(input: str, sep: str = '') -> str:
     return sep.join(input)
 
 def utilsRunGit(args: List[str]) -> subprocess.CompletedProcess:
-    return subprocess.run(['git'] + args, capture_output=True, encoding='utf-8')
+    return subprocess.run(['git', '-C', SCRIPT_DIR] + args, capture_output=True, encoding='utf-8')
 
 def utilsGetGitInfo() -> None:
     global DEFAULT_COMMENT2, GIT_BRANCH, GIT_COMMIT, GIT_REV
@@ -522,12 +524,14 @@ def utilsProcessNspFile(args: argparse.Namespace, nsp: List) -> Dict:
         ascii = orig_nsp_path.encode('ascii')
     except Exception:
         # Rename NSP.
-        temp_path = os.path.join(os.path.split(orig_nsp_path)[0], utilsGetRandomString(16) + os.path.splitext(orig_nsp_path)[1])
+        temp_path = os.path.join(os.path.dirname(orig_nsp_path), utilsGetRandomString(16) + os.path.splitext(orig_nsp_path)[1])
         os.rename(orig_nsp_path, temp_path)
         nsp_path = temp_path
 
     # Convert NSZ back to NSP, if needed.
-    if is_nsz: nsp_path, nsp_size = utilsConvertNszToNsp(args.outdir, nsp_path)
+    if is_nsz:
+        print('\t- Converting NSZ to NSP...')
+        nsp_path, nsp_size = utilsConvertNszToNsp(args.outdir, nsp_path)
 
     if not args.exclude_nsp:
         # Get NSP info.
