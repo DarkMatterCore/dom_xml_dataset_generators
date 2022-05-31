@@ -509,7 +509,7 @@ def utilsBuildNspTitleList(ext_nsp_dir: str, hactool: str, keys: str) -> List:
 
     return titles
 
-def utilsProcessNspFile(hactool: str, keys: str, outdir: str, nsp: List, exclude_nsp: bool) -> Dict:
+def utilsProcessNspFile(args: argparse.Namespace, nsp: List) -> Dict:
     nsp_info: Dict = {}
     nsp_path, nsp_size = nsp
     orig_nsp_path = nsp_path
@@ -526,9 +526,9 @@ def utilsProcessNspFile(hactool: str, keys: str, outdir: str, nsp: List, exclude
         nsp_path = temp_path
 
     # Convert NSZ back to NSP, if needed.
-    if is_nsz: nsp_path, nsp_size = utilsConvertNszToNsp(outdir, nsp_path)
+    if is_nsz: nsp_path, nsp_size = utilsConvertNszToNsp(args.outdir, nsp_path)
 
-    if not exclude_nsp:
+    if not args.exclude_nsp:
         # Get NSP info.
         nsp_properties = utilsCalculateFileChecksums(nsp_path)
         nsp_properties.update({
@@ -538,11 +538,11 @@ def utilsProcessNspFile(hactool: str, keys: str, outdir: str, nsp: List, exclude
         nsp_info.update({ 'nsp': nsp_properties })
 
     # Extract NSP.
-    ext_nsp_dir = os.path.join(outdir, GIT_REV + '_' + utilsGetRandomString(8))
-    utilsExtractNsp(nsp_path, hactool, keys, ext_nsp_dir)
+    ext_nsp_dir = os.path.join(args.outdir, GIT_REV + '_' + utilsGetRandomString(8))
+    utilsExtractNsp(nsp_path, args.hactool, args.keys, ext_nsp_dir)
 
     # Build NSP title list from extracted files.
-    nsp_title_list = utilsBuildNspTitleList(ext_nsp_dir, hactool, keys)
+    nsp_title_list = utilsBuildNspTitleList(ext_nsp_dir, args.hactool, args.keys)
 
     # Delete extracted data.
     shutil.rmtree(ext_nsp_dir)
@@ -561,24 +561,16 @@ def utilsProcessNspFile(hactool: str, keys: str, outdir: str, nsp: List, exclude
 
     return nsp_info
 
-def utilsGenerateXmlDataset(nsp_list: List, outdir: str, exclude_nsp: bool, section: str, dump_date: str, release_date: str, dumper: str, project: str, tool: str, region: str, include_comment: bool) -> None:
-    dump_date_provided = (len(dump_date) > 0)
-    if not dump_date_provided: dump_date = datetime.datetime.now().date().isoformat()
+def utilsGenerateXmlDataset(args: argparse.Namespace, nsp_list: List) -> None:
+    dump_date_provided = (len(args.dump_date) > 0)
+    if not dump_date_provided: args.dump_date = datetime.datetime.now().date().isoformat()
 
-    release_date_provided = (len(release_date) > 0)
+    release_date_provided = (len(args.release_date) > 0)
 
-    comment2_str = (DEFAULT_COMMENT2 if include_comment else '')
-
-    # Escape ampersand characters.
-    section = section.replace('&', HTML_AMPERSAND)
-    dumper = dumper.replace('&', HTML_AMPERSAND)
-    project = project.replace('&', HTML_AMPERSAND)
-    tool = tool.replace('&', HTML_AMPERSAND)
-    region = region.replace('&', HTML_AMPERSAND)
-    comment2_str = comment2_str.replace('&', HTML_AMPERSAND)
+    comment2_str = (DEFAULT_COMMENT2 if args.include_comment else '').replace('&', HTML_AMPERSAND)
 
     # Open output XML file.
-    xml_path = os.path.join(outdir, OUTPUT_XML_NAME)
+    xml_path = os.path.join(args.outdir, OUTPUT_XML_NAME)
     with open(xml_path, 'w', encoding='utf-8') as xml_file:
         # Write XML file header.
         xml_file.write(XML_HEADER)
@@ -587,7 +579,7 @@ def utilsGenerateXmlDataset(nsp_list: List, outdir: str, exclude_nsp: bool, sect
         for entry in nsp_list:
             # Process titles available in current NSP.
             for title in entry['titles']:
-                nsp = (None if exclude_nsp else entry['nsp'])
+                nsp = (None if args.exclude_nsp else entry['nsp'])
 
                 # Escape ampersand characters.
                 if title['display_name']: title['display_name'] = title['display_name'].replace('&', HTML_AMPERSAND)
@@ -606,7 +598,7 @@ def utilsGenerateXmlDataset(nsp_list: List, outdir: str, exclude_nsp: bool, sect
                     dev_status += ('Update' if (title['title_type'] == 'Patch') else 'DLC')
 
                 title_str  = '  <game name="">\n'
-                title_str += '    <archive name="%s" namealt="" region="%s" languages="%s" langchecked="0" version="%s" devstatus="%s" additional="" special1="" special2="" />\n' % (archive_name, region, ','.join(title['supported_languages']), '' if (title['version'] == 0) else 'v{:d}'.format(title['version']), dev_status)
+                title_str += '    <archive name="%s" namealt="" region="%s" languages="%s" langchecked="0" version="%s" devstatus="%s" additional="" special1="" special2="" />\n' % (archive_name, args.region, ','.join(title['supported_languages']), '' if (title['version'] == 0) else 'v{:d}'.format(title['version']), dev_status)
                 title_str += '    <flags bios="0" licensed="1" pirate="0" physical="0" complete="1" nodump="0" public="1" dat="1" />\n'
 
                 if title['display_name'] or title['publisher'] or title['display_version']:
@@ -617,7 +609,7 @@ def utilsGenerateXmlDataset(nsp_list: List, outdir: str, exclude_nsp: bool, sect
                     title_str += '    </media>\n'
 
                 title_str += '    <source>\n'
-                title_str += '      <details section="%s" rominfo="" originalformat="NSP" dumpdate="%s" knowndumpdate="%d" releasedate="%s" knownreleasedate="%d" dumper="%s" project="%s" tool="%s" region="%s" origin="" comment1="" comment2="%s" link1="" link2="" mediatitle="" />\n' % (section, dump_date, int(dump_date_provided), release_date, int(release_date_provided), dumper, project, tool, region, comment2_str)
+                title_str += '      <details section="%s" rominfo="" originalformat="NSP" dumpdate="%s" knowndumpdate="%d" releasedate="%s" knownreleasedate="%d" dumper="%s" project="%s" tool="%s" region="%s" origin="" comment1="" comment2="%s" link1="" link2="" mediatitle="" />\n' % (args.section, args.dump_date, int(dump_date_provided), args.release_date, int(release_date_provided), args.dumper, args.project, args.tool, args.region, comment2_str)
                 title_str += '      <serials mediaserial1="" mediaserial2="" pcbserial="" romchipserial1="" romchipserial2="" lockoutserial="" savechipserial="" chipserial="" boxserial="" mediastamp="" boxbarcode="" digitalserial1="%s" digitalserial2="" />\n' % (title['title_id'])
 
                 # Generate ROM entries.
@@ -667,19 +659,19 @@ def utilsGenerateXmlDataset(nsp_list: List, outdir: str, exclude_nsp: bool, sect
 
     print('Successfully saved output XML dataset to "%s".' % (xml_path), flush=True)
 
-def utilsProcessNspDir(nspdir: str, hactool: str, keys: str, outdir: str, exclude_nsp: bool, section: str, dump_date: str, release_date: str, dumper: str, project: str, tool: str, region: str, include_comment: bool) -> None:
+def utilsProcessNspDir(args: argparse.Namespace) -> None:
     nsp_list: List = []
     file_list: List = []
 
     # Get NSP/NSZ file list.
-    file_list = utilsGetFileList(nspdir, True)
+    file_list = utilsGetFileList(args.nspdir, True)
     if not file_list: raise Exception("Error: input directory holds no NSP/NSZ files.")
 
     # Process NSP files.
     for nsp in file_list:
         print('Processing "%s"...' % (os.path.basename(nsp[0])))
 
-        nsp_info = utilsProcessNspFile(hactool, keys, outdir, nsp, exclude_nsp)
+        nsp_info = utilsProcessNspFile(args, nsp)
         if not nsp_info:
             print('')
             continue
@@ -689,7 +681,7 @@ def utilsProcessNspDir(nspdir: str, hactool: str, keys: str, outdir: str, exclud
         print('')
 
     # Generate output XML dataset.
-    if nsp_list: utilsGenerateXmlDataset(nsp_list, outdir, exclude_nsp, section, dump_date, release_date, dumper, project, tool, region, include_comment)
+    if nsp_list: utilsGenerateXmlDataset(args, nsp_list)
 
 def main() -> int:
     # Get git commit information.
@@ -702,40 +694,39 @@ def main() -> int:
     parser.add_argument('--outdir', type=str, metavar='DIR', help='Path to output directory. Defaults to "' + OUTPUT_PATH + '".')
     parser.add_argument('--exclude-nsp', action='store_true', default=False, help='Excludes NSP metadata from the output XML dataset. Disabled by default.')
     parser.add_argument('--section', type=str, default='', help='Section string used in the output XML dataset. Optional.')
-    parser.add_argument('--dump-date', type=datetime.date.fromisoformat, default=argparse.SUPPRESS, help='Dump date used in the output XML dataset. Defaults to current date if not provided.')
-    parser.add_argument('--release-date', type=datetime.date.fromisoformat, default=argparse.SUPPRESS, help='Release date used in the output XML dataset. Optional.')
+    parser.add_argument('--dump-date', type=datetime.date.fromisoformat, default=argparse.SUPPRESS, metavar='YYYY-MM-DD', help='Dump date used in the output XML dataset. Defaults to current date if not provided.')
+    parser.add_argument('--release-date', type=datetime.date.fromisoformat, default=argparse.SUPPRESS, metavar='YYYY-MM-DD', help='Release date used in the output XML dataset. Optional.')
     parser.add_argument('--dumper', type=str, default=DEFAULT_DUMPER, help='Dumper string used in the output XML dataset. Defaults to "' + DEFAULT_DUMPER + '" if not provided.')
     parser.add_argument('--project', type=str, default=DEFAULT_PROJECT, help='Project string used in the output XML dataset. Defaults to "' + DEFAULT_PROJECT + '" if not provided.')
     parser.add_argument('--tool', type=str, default=DEFAULT_TOOL, help='Tool string used in the output XML dataset. Defaults to "' + DEFAULT_TOOL + '" if not provided.')
     parser.add_argument('--region', type=str, default=DEFAULT_REGION, help='Region string used in the output XML dataset. Defaults to "' + DEFAULT_REGION + '" if not provided.')
     parser.add_argument('--include-comment', action='store_true', default=False, help='Sets the comment2 value to a string that holds information about this script. Disabled by default.')
+    parser.add_argument('--keep-folders', action='store_true', default=False, help='Keeps extracted NSP folders in the provided output directory. Disabled by default (all extracted folders are removed).')
 
     print(SCRIPT_NAME + '.\nRevision: ' + GIT_REV + '.\nMade by DarkMatterCore.\n')
 
-    # Parse arguments.
+    # Parse arguments. Make sure to escape ampersand characters in input strings.
     args = parser.parse_args()
-    nspdir = utilsGetPath(args.nspdir, os.path.join(INITIAL_DIR, NSP_PATH), False)
-    hactool = utilsGetPath(args.hactool, os.path.join(INITIAL_DIR, HACTOOL_PATH), True)
-    keys = utilsGetPath(args.keys, KEYS_PATH, True)
-    outdir = utilsGetPath(args.outdir, os.path.join(INITIAL_DIR, OUTPUT_PATH), False, True)
-    exclude_nsp = args.exclude_nsp
-    section = args.section
-    dump_date = (args.dump_date.isoformat() if "dump_date" in args else '')
-    release_date = (args.release_date.isoformat() if "release_date" in args else '')
-    dumper = args.dumper
-    project = args.project
-    tool = args.tool
-    region = args.region
-    include_comment = args.include_comment
+    args.nspdir = utilsGetPath(args.nspdir, os.path.join(INITIAL_DIR, NSP_PATH), False)
+    args.hactool = utilsGetPath(args.hactool, os.path.join(INITIAL_DIR, HACTOOL_PATH), True)
+    args.keys = utilsGetPath(args.keys, KEYS_PATH, True)
+    args.outdir = utilsGetPath(args.outdir, os.path.join(INITIAL_DIR, OUTPUT_PATH), False, True)
+    args.section = args.section.replace('&', HTML_AMPERSAND)
+    args.__setattr__('dump_date', args.dump_date.isoformat() if "dump_date" in args else '')
+    args.__setattr__('release_date', args.release_date.isoformat() if "release_date" in args else '')
+    args.dumper = args.dumper.replace('&', HTML_AMPERSAND)
+    args.project = args.project.replace('&', HTML_AMPERSAND)
+    args.tool = args.tool.replace('&', HTML_AMPERSAND)
+    args.region = args.region.replace('&', HTML_AMPERSAND)
 
     # Check if nsz has been installed.
     if not shutil.which('nsz'): raise Exception('Error: "nsz" package isn\'t installed.')
 
     # Copy keys file (required by nsz since it offers no way to provide a keys file path).
-    utilsCopyKeysFile(keys)
+    utilsCopyKeysFile(args.keys)
 
     # Do our thing.
-    utilsProcessNspDir(nspdir, hactool, keys, outdir, exclude_nsp, section, dump_date, release_date, dumper, project, tool, region, include_comment)
+    utilsProcessNspDir(args)
 
     return 0
 
