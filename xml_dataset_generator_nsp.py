@@ -546,7 +546,7 @@ def utilsProcessNspFile(args: argparse.Namespace, nsp: List) -> Dict:
     # Build NSP title list from extracted files.
     nsp_title_list = utilsBuildNspTitleList(ext_nsp_dir, args.hactool, args.keys)
 
-    if args.keep_folders:
+    if nsp_title_list and args.keep_folders:
         # Rename extracted NSP directory.
         new_ext_nsp_dir = os.path.join(args.outdir, nsp_filename)
         if os.path.exists(new_ext_nsp_dir):
