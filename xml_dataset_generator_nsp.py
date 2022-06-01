@@ -41,8 +41,9 @@ import glob
 import argparse
 from typing import List, Union, Tuple, Dict, Pattern, TYPE_CHECKING
 
-SCRIPT_NAME: str = os.path.basename(__file__)
-SCRIPT_DIR:  str = os.path.abspath(os.path.dirname(__file__))
+SCRIPT_PATH: str = os.path.realpath(__file__)
+SCRIPT_NAME: str = os.path.basename(SCRIPT_PATH)
+SCRIPT_DIR:  str = os.path.dirname(SCRIPT_PATH)
 
 CWD:         str = os.getcwd()
 INITIAL_DIR: str = (CWD if CWD != SCRIPT_DIR else SCRIPT_DIR)
