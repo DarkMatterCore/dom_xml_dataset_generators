@@ -262,7 +262,7 @@ def utilsGetNcaInfo(hactool: str, keys: str, nca_path: str, titlekey: str = '', 
 
     proc = utilsRunHactool(hactool, keys, 'nca', args)
     if not proc.stdout or proc.returncode != 0:
-        print('\t\t- Failed to retrieve NCA info for "%s" (%s).' % (os.path.basename(nca_path), proc.stderr.strip()))
+        print('\t\t- Failed to retrieve NCA info (%s).' % (proc.stderr.strip()))
         return {}
 
     # Parse hactool's output.
@@ -274,7 +274,7 @@ def utilsGetNcaInfo(hactool: str, keys: str, nca_path: str, titlekey: str = '', 
     verify = (len(re.findall(HACTOOL_VERIFY_REGEX, proc.stdout)) == 0)
 
     if (not dist_type) or (not cnt_type) or (not crypto_type):
-        print('\t\t- Failed to parse hactool output for "%s".' % (os.path.basename(nca_path)))
+        print('\t\t- Failed to parse hactool\'s output.')
         return {}
 
     dist_type = dist_type.group(1).lower()
@@ -282,23 +282,23 @@ def utilsGetNcaInfo(hactool: str, keys: str, nca_path: str, titlekey: str = '', 
     crypto_type = crypto_type.group(1).lower().split()[0]
 
     if (crypto_type == 'titlekey') and (not rights_id):
-        print('\t\t- Rights ID unavailable for NCA "%s".' % (os.path.basename(nca_path)))
+        print('\t\t- Failed to parse Rights ID from hactool\'s output.')
         return {}
 
     rights_id = (rights_id.group(1).lower() if rights_id else '')
     dec_titlekey = (dec_titlekey.group(1).lower() if dec_titlekey else '')
 
     if dist_type != 'download':
-        print('\t\t- Invalid distribution type for NCA "%s" (got "%s", expected "%s").' % (os.path.basename(nca_path), dist_type, NCA_DISTRIBUTION_TYPE))
+        print('\t\t- Invalid distribution type (got "%s", expected "%s").' % (dist_type, NCA_DISTRIBUTION_TYPE))
         return {}
 
     expected_cnt_type = expected_cnt_type.lower()
     if expected_cnt_type and cnt_type != expected_cnt_type:
-        print('\t\t- Invalid content type for NCA "%s" (got "%s", expected "%s").' % (os.path.basename(nca_path), cnt_type, expected_cnt_type))
+        print('\t\t- Invalid content type (got "%s", expected "%s").' % (cnt_type, expected_cnt_type))
         return {}
 
     if (not verify) and ((crypto_type != 'titlekey') or titlekey):
-        print('\t\t- Signature/hash verification failed for NCA "%s".' % (os.path.basename(nca_path)))
+        print('\t\t- Signature/hash verification failed.')
         return {}
 
     nca_info = {
