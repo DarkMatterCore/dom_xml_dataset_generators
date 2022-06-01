@@ -65,22 +65,22 @@ NCA_DISTRIBUTION_TYPE: str = 'download'
 OUTPUT_XML_NAME: str = 'nsw_nsp.xml'
 
 DOM_LANGUAGES: Dict = {
-    'AmericanEnglish':      'En-US',
-    'BritishEnglish':       'En-GB',
-    'Japanese':             'Ja',
-    'French':               'Fr-FR',
-    'German':               'De',
-    'LatinAmericanSpanish': 'Es-LX',
-    'Spanish':              'Es-ES',
-    'Italian':              'It',
-    'Dutch':                'Nl',
-    'CanadianFrench':       'Fr-CA',
-    'Portuguese':           'Pt-PT',
-    'Russian':              'Ru',
-    'Korean':               'Ko',
-    'TraditionalChinese':   'Zh-Hant',
-    'SimplifiedChinese':    'Zh-Hans',
-    'BrazilianPortuguese':  'Pt-BR'
+    'american_english':       'En-US',
+    'british_english':        'En-GB',
+    'japanese':               'Ja',
+    'french':                 'Fr-FR',
+    'german':                 'De',
+    'latin_american_spanish': 'Es-LX',
+    'spanish':                'Es-ES',
+    'italian':                'It',
+    'dutch':                  'Nl',
+    'canadian_french':        'Fr-CA',
+    'portuguese':             'Pt-PT',
+    'russian':                'Ru',
+    'korean':                 'Ko',
+    'traditional_chinese':    'Zh-Hant',
+    'simplified_chinese':     'Zh-Hans',
+    'brazilian_portuguese':   'Pt-BR'
 }
 
 XML_HEADER: str = '<?xml version="1.0" encoding="utf-8"?>\n'
@@ -339,11 +339,12 @@ def utilsBuildNspTitleList(ext_nsp_dir: str, hactool: str, keys: str) -> List:
         enc_titlekey = { 'value': '' }
         dec_titlekey = { 'value': '' }
 
-        display_name = ''
-        publisher = ''
-        display_version = ''
-        demo = False
-        supported_languages = []
+        control = {
+            'languages': {},
+            'display_version': '',
+            'demo': False,
+            'supported_languages': []
+        }
 
         success = True
 
@@ -461,16 +462,25 @@ def utilsBuildNspTitleList(ext_nsp_dir: str, hactool: str, keys: str) -> List:
                 nacp = Nacp.from_file(nacp_path)
 
                 # Get relevant info.
-                display_name = nacp.title[Nacp.Language.american_english.value].name
-                publisher = nacp.title[Nacp.Language.american_english.value].publisher
-                display_version = nacp.display_version
-                demo = nacp.attribute.demo
+                for lang in Nacp.Language:
+                    if lang.name == 'count': break
 
-                for data in Nacp.Language:
-                    if data.name == 'count': break
-                    if nacp.supported_language.languages[data.value]:
-                        dom_lang = DOM_LANGUAGES.get(utilsCapitalizeString(data.name), '')
-                        if dom_lang: supported_languages.append(dom_lang)
+                    if not nacp.supported_language.languages[lang.value]: continue
+
+                    control_title = nacp.title[lang.value]
+
+                    control['languages'].update({
+                        lang.name: {
+                            'display_name': control_title.name.replace('&', HTML_AMPERSAND),
+                            'publisher': control_title.publisher.replace('&', HTML_AMPERSAND)
+                        }
+                    })
+
+                    dom_lang = DOM_LANGUAGES.get(lang.name, '')
+                    if dom_lang: control['supported_languages'].append(dom_lang)
+
+                control['display_version'] = nacp.display_version.replace('&', HTML_AMPERSAND)
+                control['demo'] = nacp.attribute.demo
 
                 # Close and delete NACP.
                 nacp.close()
@@ -485,12 +495,8 @@ def utilsBuildNspTitleList(ext_nsp_dir: str, hactool: str, keys: str) -> List:
             titles.append({
                 'title_id': '{:016x}'.format(cnmt.header.title_id),
                 'version': cnmt.header.version.raw_version,
-                'title_type': utilsCapitalizeString(cnmt.header.content_meta_type.name),
-                'display_name': display_name,
-                'publisher': publisher,
-                'display_version': display_version,
-                'demo': demo,
-                'supported_languages': supported_languages,
+                'title_type': cnmt.header.content_meta_type.name,
+                'control': control,
                 'crypto': {
                     'rights_id': rights_id,
                     'ticket': ticket,
@@ -536,7 +542,7 @@ def utilsProcessNspFile(args: argparse.Namespace, nsp: List) -> Dict:
     if not args.exclude_nsp:
         # Get NSP info.
         nsp_properties = utilsCalculateFileChecksums(nsp_path)
-        nsp_properties.update({ 'filename': nsp_filename })
+        nsp_properties.update({ 'filename': nsp_filename.replace('&', HTML_AMPERSAND) })
         nsp_info.update({ 'nsp': nsp_properties })
 
     # Extract NSP.
@@ -594,31 +600,46 @@ def utilsGenerateXmlDataset(args: argparse.Namespace, nsp_list: List) -> None:
             for title in entry['titles']:
                 nsp = (None if args.exclude_nsp else entry['nsp'])
 
-                # Escape ampersand characters.
-                if title['display_name']: title['display_name'] = title['display_name'].replace('&', HTML_AMPERSAND)
-                if title['publisher']: title['publisher'] = title['publisher'].replace('&', HTML_AMPERSAND)
-                if title['display_version']: title['display_version'] = title['display_version'].replace('&', HTML_AMPERSAND)
-                if nsp: nsp['filename'] = nsp['filename'].replace('&', HTML_AMPERSAND)
+                control = title['control']
+                archive_name = ''
 
-                # Generate metadata.
-                archive_name = title['display_name']
+                # Generate archive name string.
+                for lang in Nacp.Language:
+                    if lang.name == 'count': break
+                    if lang.name not in control['languages']: continue
+                    archive_name = control['languages'][lang.name]['display_name']
+                    break
+
                 if not archive_name: archive_name = title['title_id']
 
+                # Generate dev status string.
                 dev_status = ''
-                if title['demo']: dev_status += 'Demo'
-                if (title['title_type'] == 'Patch') or (title['title_type'] == 'AddOnContent'):
+                if control['demo']: dev_status += 'Demo'
+                if (title['title_type'] == 'patch') or (title['title_type'] == 'add_on_content'):
                     if dev_status: dev_status += ','
-                    dev_status += ('Update' if (title['title_type'] == 'Patch') else 'DLC')
+                    dev_status += ('Update' if (title['title_type'] == 'patch') else 'DLC')
 
+                # Generate XML entry.
                 title_str  = '  <game name="">\n'
-                title_str += '    <archive name="%s" namealt="" region="%s" languages="%s" langchecked="0" version="%s" devstatus="%s" additional="" special1="" special2="" />\n' % (archive_name, args.region, ','.join(title['supported_languages']), '' if (title['version'] == 0) else 'v{:d}'.format(title['version']), dev_status)
+                title_str += '    <archive name="%s" namealt="" region="%s" languages="%s" langchecked="0" version="%s" devstatus="%s" additional="" special1="" special2="" />\n' % (archive_name, args.region, ','.join(control['supported_languages']), '' if (title['version'] == 0) else 'v{:d}'.format(title['version']), dev_status)
                 title_str += '    <flags bios="0" licensed="1" pirate="0" physical="0" complete="1" nodump="0" public="1" dat="1" />\n'
 
-                if title['display_name'] or title['publisher'] or title['display_version']:
+                if control['languages'] or control['display_version']:
                     title_str += '    <media>\n'
-                    if title['display_name']: title_str += '      <field name="Original Name (NACP, AmericanEnglish)" value="%s" />\n' % (title['display_name'])
-                    if title['publisher']: title_str += '      <field name="Publisher (NACP, AmericanEnglish)" value="%s" />\n' % (title['publisher'])
-                    if title['display_version']: title_str += '      <field name="Display Version (NACP)" value="%s" />\n' % (title['display_version'])
+
+                    if control['languages']:
+                        for lang in Nacp.Language:
+                            if lang.name == 'count': break
+                            if lang.name not in control['languages']: continue
+
+                            control_lang = control['languages'][lang.name]
+                            cap_lang_name = utilsCapitalizeString(lang.name)
+
+                            if control_lang['display_name']: title_str += '      <field name="Original Name (NACP, %s)" value="%s" />\n' % (cap_lang_name, control_lang['display_name'])
+                            if control_lang['publisher']:    title_str += '      <field name="Publisher (NACP, %s)" value="%s" />\n' % (cap_lang_name, control_lang['publisher'])
+
+                    if control['display_version']: title_str += '      <field name="Display Version (NACP)" value="%s" />\n' % (control['display_version'])
+
                     title_str += '    </media>\n'
 
                 title_str += '    <source>\n'
@@ -650,13 +671,13 @@ def utilsGenerateXmlDataset(args: argparse.Namespace, nsp_list: List) -> None:
                     dtk = crypto['dec_titlekey']
 
                     # Add ticket info.
-                    rom_str += '      <rom forcename="%s" format="CDN" version="0" size="%d" crc="%s" md5="%s" sha1="%s" sha256="%s" />\n' % (tik['filename'], tik['size'], tik['crc'], tik['md5'], tik['sha1'], tik['sha256'])
+                    rom_str += '      <rom forcename="%s" format="CDN" version="%d" size="%d" crc="%s" md5="%s" sha1="%s" sha256="%s" />\n' % (tik['filename'], title['version'], tik['size'], tik['crc'], tik['md5'], tik['sha1'], tik['sha256'])
 
                     # Add encrypted titlekey info.
-                    rom_str += '      <rom forcename="%s" format="CDN" version="0" size="%d" crc="%s" md5="%s" sha1="%s" sha256="%s" />\n' % (etk['filename'], etk['size'], etk['crc'], etk['md5'], etk['sha1'], etk['sha256'])
+                    rom_str += '      <rom forcename="%s" format="CDN" version="%d" size="%d" crc="%s" md5="%s" sha1="%s" sha256="%s" />\n' % (etk['filename'], title['version'], etk['size'], etk['crc'], etk['md5'], etk['sha1'], etk['sha256'])
 
                     # Add decrypted titlekey info.
-                    rom_str += '      <rom forcename="%s" format="CDN" version="0" size="%d" crc="%s" md5="%s" sha1="%s" sha256="%s" />\n' % (dtk['filename'], dtk['size'], dtk['crc'], dtk['md5'], dtk['sha1'], dtk['sha256'])
+                    rom_str += '      <rom forcename="%s" format="CDN" version="%d" size="%d" crc="%s" md5="%s" sha1="%s" sha256="%s" />\n' % (dtk['filename'], title['version'], dtk['size'], dtk['crc'], dtk['md5'], dtk['sha1'], dtk['sha256'])
 
                 # Update title string.
                 title_str += rom_str
