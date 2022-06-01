@@ -262,7 +262,7 @@ def utilsGetNcaInfo(hactool: str, keys: str, nca_path: str, titlekey: str = '', 
 
     proc = utilsRunHactool(hactool, keys, 'nca', args)
     if not proc.stdout or proc.returncode != 0:
-        print('\t\t- Failed to retrieve NCA info for "%s".' % (os.path.basename(nca_path)))
+        print('\t\t- Failed to retrieve NCA info for "%s" (%s).' % (os.path.basename(nca_path), proc.stderr.strip()))
         return {}
 
     # Parse hactool's output.
@@ -274,7 +274,7 @@ def utilsGetNcaInfo(hactool: str, keys: str, nca_path: str, titlekey: str = '', 
     verify = (len(re.findall(HACTOOL_VERIFY_REGEX, proc.stdout)) == 0)
 
     if (not dist_type) or (not cnt_type) or (not crypto_type):
-        print('\t\t- Failed to retrieve NCA info for "%s".' % (os.path.basename(nca_path)))
+        print('\t\t- Failed to parse hactool output for "%s".' % (os.path.basename(nca_path)))
         return {}
 
     dist_type = dist_type.group(1).lower()
