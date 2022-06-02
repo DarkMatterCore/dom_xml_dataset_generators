@@ -259,7 +259,7 @@ def utilsCalculateFileChecksums(file: str) -> Dict:
 
     return checksums
 
-def utilsGetNcaInfo(hactool: str, keys: str, nca_path: str, titlekey: str = '', expected_cnt_type: str = '') -> Dict:
+def utilsGetNcaInfo(thrd_id: str, hactool: str, keys: str, nca_path: str, titlekey: str = '', expected_cnt_type: str = '') -> Dict:
     # Run hactool.
     args = []
     if titlekey: args.append('--titlekey=' + titlekey)
@@ -267,7 +267,7 @@ def utilsGetNcaInfo(hactool: str, keys: str, nca_path: str, titlekey: str = '', 
 
     proc = utilsRunHactool(hactool, keys, 'nca', args)
     if not proc.stdout or proc.returncode != 0:
-        msg = '\t\t- Failed to retrieve NCA info'
+        msg = '(Thread ' + thrd_id + ') Failed to retrieve NCA info'
         hactool_stderr = proc.stderr.strip()
         if hactool_stderr: msg += ' (%s)' % (hactool_stderr)
         print(msg + '.')
@@ -282,7 +282,7 @@ def utilsGetNcaInfo(hactool: str, keys: str, nca_path: str, titlekey: str = '', 
     verify = (len(re.findall(HACTOOL_VERIFY_REGEX, proc.stdout)) == 0)
 
     if (not dist_type) or (not cnt_type) or (not crypto_type):
-        print('\t\t- Failed to parse hactool\'s output.')
+        print('(Thread ' + thrd_id + ') Failed to parse hactool\'s output.')
         return {}
 
     dist_type = dist_type.group(1).lower()
@@ -290,23 +290,23 @@ def utilsGetNcaInfo(hactool: str, keys: str, nca_path: str, titlekey: str = '', 
     crypto_type = crypto_type.group(1).lower().split()[0]
 
     if (crypto_type == 'titlekey') and (not rights_id):
-        print('\t\t- Failed to parse Rights ID from hactool\'s output.')
+        print('(Thread ' + thrd_id + ') Failed to parse Rights ID from hactool\'s output.')
         return {}
 
     rights_id = (rights_id.group(1).lower() if rights_id else '')
     dec_titlekey = (dec_titlekey.group(1).lower() if dec_titlekey else '')
 
     if dist_type != 'download':
-        print('\t\t- Invalid distribution type (got "%s", expected "%s").' % (dist_type, NCA_DISTRIBUTION_TYPE))
+        print('(Thread ' + thrd_id + ') Invalid distribution type (got "%s", expected "%s").' % (dist_type, NCA_DISTRIBUTION_TYPE))
         return {}
 
     expected_cnt_type = expected_cnt_type.lower()
     if expected_cnt_type and cnt_type != expected_cnt_type:
-        print('\t\t- Invalid content type (got "%s", expected "%s").' % (cnt_type, expected_cnt_type))
+        print('(Thread ' + thrd_id + ') Invalid content type (got "%s", expected "%s").' % (cnt_type, expected_cnt_type))
         return {}
 
     if (not verify) and ((crypto_type != 'titlekey') or titlekey):
-        print('\t\t- Signature/hash verification failed.')
+        print('(Thread ' + thrd_id + ') Signature/hash verification failed.')
         return {}
 
     nca_info = {
@@ -329,7 +329,7 @@ def utilsGetNcaInfo(hactool: str, keys: str, nca_path: str, titlekey: str = '', 
 
     return nca_info
 
-def utilsBuildNspTitleList(ext_nsp_dir: str, hactool: str, keys: str) -> List:
+def utilsBuildNspTitleList(ext_nsp_dir: str, hactool: str, keys: str, thrd_id: str) -> List:
     # Empty dictionary, used to hold the NSP title list.
     titles = []
     nca_info = {}
@@ -366,10 +366,10 @@ def utilsBuildNspTitleList(ext_nsp_dir: str, hactool: str, keys: str) -> List:
         file_size = entry.stat().st_size
         if not file_size: continue
 
-        print('\t- Parsing Meta NCA: "%s".' % (os.path.basename(entry.path)))
+        print('(Thread ' + thrd_id + ') Parsing Meta NCA: "%s".' % (os.path.basename(entry.path)))
 
         # Retrieve CNMT NCA information using hactool.
-        nca_info = utilsGetNcaInfo(hactool, keys, entry.path, enc_titlekey['value'], 'meta')
+        nca_info = utilsGetNcaInfo(thrd_id, hactool, keys, entry.path, enc_titlekey['value'], 'meta')
         if not nca_info: continue
 
         # Append NCA info.
@@ -391,10 +391,10 @@ def utilsBuildNspTitleList(ext_nsp_dir: str, hactool: str, keys: str) -> List:
             content_path = os.path.join(ext_nsp_dir, content_filename)
             content_type = Cnmt.ContentType(packaged_content_info.info.type).name
 
-            print('\t- Parsing %s NCA: "%s".' % (utilsCapitalizeString(content_type, ' '), content_filename))
+            print('(Thread ' + thrd_id + ') Parsing %s NCA: "%s".' % (utilsCapitalizeString(content_type, ' '), content_filename))
 
             # Retrieve NCA information using hactool.
-            nca_info = utilsGetNcaInfo(hactool, keys, content_path, enc_titlekey['value'])
+            nca_info = utilsGetNcaInfo(thrd_id, hactool, keys, content_path, enc_titlekey['value'])
             if not nca_info: continue
 
             # Check if we're missing the titlekey.
@@ -409,7 +409,7 @@ def utilsBuildNspTitleList(ext_nsp_dir: str, hactool: str, keys: str) -> List:
 
                 tik = Tik.from_file(tik_path)
                 if tik.titlekey_type != Tik.TitlekeyType.common:
-                    print('\t\t- Error: ticket "%s" doesn\'t use common crypto. Skipping current title.' % (tik_filename))
+                    print('(Thread ' + thrd_id + ') Error: ticket "%s" doesn\'t use common crypto. Skipping current title.' % (tik_filename))
                     success = False
                     break
 
@@ -421,7 +421,7 @@ def utilsBuildNspTitleList(ext_nsp_dir: str, hactool: str, keys: str) -> List:
 
                 # Parse NCA once more, if needed.
                 if not nca_info['verify']:
-                    nca_info = utilsGetNcaInfo(hactool, keys, content_path, enc_titlekey['value'])
+                    nca_info = utilsGetNcaInfo(thrd_id, hactool, keys, content_path, enc_titlekey['value'])
                     if not nca_info: continue
 
                 # Set decrypted titlekey.
@@ -451,7 +451,7 @@ def utilsBuildNspTitleList(ext_nsp_dir: str, hactool: str, keys: str) -> List:
 
             # Verify content ID.
             if (packaged_content_info.info.id != packaged_content_info.hash[:16]) or (packaged_content_info.info.id.hex().lower() != nca_info['sha256'][:32]):
-                print('\t\t- Error: content ID / hash mismatch.')
+                print('(Thread ' + thrd_id + ') Error: content ID / hash mismatch.')
                 continue
 
             # Replace NCA info's content type with the type stored in the CNMT, because it's more descriptive.
@@ -525,14 +525,13 @@ def utilsBuildNspTitleList(ext_nsp_dir: str, hactool: str, keys: str) -> List:
 
     return titles
 
-def utilsProcessNspFile(args: argparse.Namespace, nsp: List) -> Dict:
+def utilsProcessNspFile(args: argparse.Namespace, thrd_id: str, nsp: List) -> Dict:
     nsp_info: Dict = {}
     nsp_path, nsp_size = nsp
     orig_nsp_path = nsp_path
     is_nsz = orig_nsp_path.lower().endswith('.nsz')
     temp_path = ''
     nsp_filename = os.path.splitext(os.path.basename(orig_nsp_path))[0] + '.nsp'
-    thrd_id = str(threading.get_ident())
 
     # Handle filenames with non-ASCII codepoints.
     try:
@@ -545,7 +544,7 @@ def utilsProcessNspFile(args: argparse.Namespace, nsp: List) -> Dict:
 
     # Convert NSZ back to NSP, if needed.
     if is_nsz:
-        print('\t- Converting NSZ to NSP...')
+        print('(Thread ' + thrd_id + ') Converting NSZ to NSP...')
         nsp_path, nsp_size = utilsConvertNszToNsp(args.outdir, nsp_path)
 
     if not args.exclude_nsp:
@@ -563,7 +562,7 @@ def utilsProcessNspFile(args: argparse.Namespace, nsp: List) -> Dict:
     for xml in xml_list: os.remove(xml)
 
     # Build NSP title list from extracted files.
-    nsp_title_list = utilsBuildNspTitleList(ext_nsp_dir, args.hactool, args.keys)
+    nsp_title_list = utilsBuildNspTitleList(ext_nsp_dir, args.hactool, args.keys, thrd_id)
 
     if nsp_title_list and args.keep_folders:
         # Rename extracted NSP directory.
@@ -592,6 +591,25 @@ def utilsProcessNspFile(args: argparse.Namespace, nsp: List) -> Dict:
     nsp_info.update({ 'titles': nsp_title_list })
 
     return nsp_info
+
+def utilsProcessNspList(args: argparse.Namespace, file_list_chunks: List, results: List) -> None:
+    thrd_id = int(threading.current_thread().name)
+    thrd_file_list = file_list_chunks[thrd_id]
+    results[thrd_id] = []
+
+    # Process NSP files.
+    for nsp in thrd_file_list:
+        print('(Thread %d) Processing "%s"...' % (thrd_id, os.path.basename(nsp[0])))
+
+        nsp_info = utilsProcessNspFile(args, str(thrd_id), nsp)
+        if not nsp_info: continue
+
+        # Update output list.
+        results[thrd_id].append(nsp_info)
+
+def utilsGetListChunks(lst: List, n: int) -> Generator:
+    for i in range(0, n):
+        yield lst[i::n]
 
 def utilsGenerateXmlDataset(args: argparse.Namespace, nsp_list: List) -> None:
     dump_date_provided = (len(args.dump_date) > 0)
@@ -703,28 +721,7 @@ def utilsGenerateXmlDataset(args: argparse.Namespace, nsp_list: List) -> None:
         # Write XML footer.
         xml_file.write(XML_FOOTER)
 
-    print('Successfully saved output XML dataset to "%s".' % (xml_path), flush=True)
-
-def utilsProcessNspList(args: argparse.Namespace, idx: int, file_list_chunks: List, results: List) -> None:
-    thrd_file_list = file_list_chunks[idx]
-    results[idx] = []
-
-    # Process NSP files.
-    for nsp in thrd_file_list:
-        print('Processing "%s"...' % (os.path.basename(nsp[0])))
-
-        nsp_info = utilsProcessNspFile(args, nsp)
-        if not nsp_info:
-            print('')
-            continue
-
-        # Update output list.
-        results[idx].append(nsp_info)
-        print('')
-
-def utilsGetListChunks(lst: List, n: int) -> Generator:
-    for i in range(0, n):
-        yield lst[i::n]
+    print('\nSuccessfully saved output XML dataset to "%s".' % (xml_path), flush=True)
 
 def utilsProcessNspDir(args: argparse.Namespace) -> None:
     nsp_list: List = []
@@ -739,7 +736,7 @@ def utilsProcessNspDir(args: argparse.Namespace) -> None:
 
     file_list_chunks = list(utilsGetListChunks(file_list, args.num_threads))
     for i in range(args.num_threads):
-        threads[i] = threading.Thread(name=str(i), target=utilsProcessNspList, args=(args, i, file_list_chunks, results))
+        threads[i] = threading.Thread(name=str(i), target=utilsProcessNspList, args=(args, file_list_chunks, results))
         threads[i].start()
 
     # Wait until all threads finish doing their job.
@@ -814,7 +811,6 @@ if __name__ == "__main__":
         eprint('\nScript interrupted.')
     except Exception as e:
         traceback.print_exc(file=sys.stderr)
-        #eprint(str(e))
 
     try:
         sys.exit(ret)
