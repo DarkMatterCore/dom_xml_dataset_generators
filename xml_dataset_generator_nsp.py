@@ -37,9 +37,11 @@ from tik import Tik
 from nacp import Nacp
 import datetime
 import glob
+import threading
+import psutil
 
 import argparse
-from typing import List, Union, Tuple, Dict, Pattern, TYPE_CHECKING
+from typing import Generator, List, Union, Tuple, Dict, Pattern, TYPE_CHECKING
 
 SCRIPT_PATH: str = os.path.realpath(__file__)
 SCRIPT_NAME: str = os.path.basename(SCRIPT_PATH)
@@ -47,6 +49,8 @@ SCRIPT_DIR:  str = os.path.dirname(SCRIPT_PATH)
 
 CWD:         str = os.getcwd()
 INITIAL_DIR: str = (CWD if CWD != SCRIPT_DIR else SCRIPT_DIR)
+
+MAX_CPU_THREAD_COUNT: int = psutil.cpu_count()
 
 NSP_PATH:     str = os.path.join('.', 'nsp')
 HACTOOL_PATH: str = os.path.join('.', ('hactool.exe' if os.name == 'nt' else 'hactool'))
@@ -263,7 +267,10 @@ def utilsGetNcaInfo(hactool: str, keys: str, nca_path: str, titlekey: str = '', 
 
     proc = utilsRunHactool(hactool, keys, 'nca', args)
     if not proc.stdout or proc.returncode != 0:
-        print('\t\t- Failed to retrieve NCA info (%s).' % (proc.stderr.strip()))
+        msg = '\t\t- Failed to retrieve NCA info'
+        hactool_stderr = proc.stderr.strip()
+        if hactool_stderr: msg += ' (%s)' % (hactool_stderr)
+        print(msg + '.')
         return {}
 
     # Parse hactool's output.
@@ -525,13 +532,14 @@ def utilsProcessNspFile(args: argparse.Namespace, nsp: List) -> Dict:
     is_nsz = orig_nsp_path.lower().endswith('.nsz')
     temp_path = ''
     nsp_filename = os.path.splitext(os.path.basename(orig_nsp_path))[0] + '.nsp'
+    thrd_id = str(threading.get_ident())
 
     # Handle filenames with non-ASCII codepoints.
     try:
         ascii = orig_nsp_path.encode('ascii')
     except Exception:
         # Rename NSP.
-        temp_path = os.path.join(os.path.dirname(orig_nsp_path), utilsGetRandomString(16) + os.path.splitext(orig_nsp_path)[1])
+        temp_path = os.path.join(os.path.dirname(orig_nsp_path), utilsGetRandomString(16) + '_' + thrd_id + os.path.splitext(orig_nsp_path)[1])
         os.rename(orig_nsp_path, temp_path)
         nsp_path = temp_path
 
@@ -547,8 +555,12 @@ def utilsProcessNspFile(args: argparse.Namespace, nsp: List) -> Dict:
         nsp_info.update({ 'nsp': nsp_properties })
 
     # Extract NSP.
-    ext_nsp_dir = os.path.join(args.outdir, GIT_REV + '_' + utilsGetRandomString(8))
+    ext_nsp_dir = os.path.join(args.outdir, GIT_REV + '_' + utilsGetRandomString(8) + '_' + thrd_id)
     utilsExtractNsp(nsp_path, args.hactool, args.keys, ext_nsp_dir)
+
+    # Delete XML files.
+    xml_list = glob.glob(os.path.join(ext_nsp_dir, '*.xml'))
+    for xml in xml_list: os.remove(xml)
 
     # Build NSP title list from extracted files.
     nsp_title_list = utilsBuildNspTitleList(ext_nsp_dir, args.hactool, args.keys)
@@ -693,16 +705,12 @@ def utilsGenerateXmlDataset(args: argparse.Namespace, nsp_list: List) -> None:
 
     print('Successfully saved output XML dataset to "%s".' % (xml_path), flush=True)
 
-def utilsProcessNspDir(args: argparse.Namespace) -> None:
-    nsp_list: List = []
-    file_list: List = []
-
-    # Get NSP/NSZ file list.
-    file_list = utilsGetFileList(args.nspdir, True)
-    if not file_list: raise Exception("Error: input directory holds no NSP/NSZ files.")
+def utilsProcessNspList(args: argparse.Namespace, idx: int, file_list_chunks: List, results: List) -> None:
+    thrd_file_list = file_list_chunks[idx]
+    results[idx] = []
 
     # Process NSP files.
-    for nsp in file_list:
+    for nsp in thrd_file_list:
         print('Processing "%s"...' % (os.path.basename(nsp[0])))
 
         nsp_info = utilsProcessNspFile(args, nsp)
@@ -710,12 +718,44 @@ def utilsProcessNspDir(args: argparse.Namespace) -> None:
             print('')
             continue
 
-        # Update NSP list.
-        nsp_list.append(nsp_info)
+        # Update output list.
+        results[idx].append(nsp_info)
         print('')
+
+def utilsGetListChunks(lst: List, n: int) -> Generator:
+    for i in range(0, n):
+        yield lst[i::n]
+
+def utilsProcessNspDir(args: argparse.Namespace) -> None:
+    nsp_list: List = []
+
+    # Get NSP/NSZ file list.
+    file_list = utilsGetFileList(args.nspdir, True)
+    if not file_list: raise Exception("Error: input directory holds no NSP/NSZ files.")
+
+    # Create processing threads.
+    threads = [None] * args.num_threads
+    results = [None] * args.num_threads
+
+    file_list_chunks = list(utilsGetListChunks(file_list, args.num_threads))
+    for i in range(args.num_threads):
+        threads[i] = threading.Thread(name=str(i), target=utilsProcessNspList, args=(args, i, file_list_chunks, results))
+        threads[i].start()
+
+    # Wait until all threads finish doing their job.
+    for i in range(args.num_threads):
+        threads[i].join()
+
+    # Generate full list with results from all threads.
+    for res in results: nsp_list.extend(res)
 
     # Generate output XML dataset.
     if nsp_list: utilsGenerateXmlDataset(args, nsp_list)
+
+def utilsValidateThreadCount(num_threads: str) -> int:
+    val = int(num_threads)
+    if (val <= 0) or (val > MAX_CPU_THREAD_COUNT): raise argparse.ArgumentTypeError('Invalid thread count provided. Value must be in the range [1, %d].' % (MAX_CPU_THREAD_COUNT))
+    return val
 
 def main() -> int:
     # Get git commit information.
@@ -736,6 +776,7 @@ def main() -> int:
     parser.add_argument('--region', type=str, default=DEFAULT_REGION, help='Region string used in the output XML dataset. Defaults to "' + DEFAULT_REGION + '" if not provided.')
     parser.add_argument('--include-comment', action='store_true', default=False, help='Sets the comment2 value to a string that holds information about this script. Disabled by default.')
     parser.add_argument('--keep-folders', action='store_true', default=False, help='Keeps extracted NSP folders in the provided output directory. Disabled by default (all extracted folders are removed).')
+    parser.add_argument('--num-threads', type=utilsValidateThreadCount, metavar='VALUE', default=1, help='Sets the number of threads used to process input NSP/NSZ files. Defaults to 1 if not provided.')
 
     print(SCRIPT_NAME + '.\nRevision: ' + GIT_REV + '.\nMade by DarkMatterCore.\n')
 
