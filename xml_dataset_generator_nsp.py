@@ -499,7 +499,7 @@ def utilsBuildNspTitleList(ext_nsp_dir: str, hactool: str, keys: str, thrd_id: s
                 dat_list = glob.glob(os.path.join(ext_nsp_dir, '*.dat'))
                 for dat in dat_list: os.remove(dat)
 
-        if success:
+        if success and len(contents) > 1:
             # Update output list.
             titles.append({
                 'title_id': '{:016x}'.format(cnmt.header.title_id),
@@ -561,6 +561,13 @@ def utilsProcessNspFile(args: argparse.Namespace, thrd_id: str, nsp: List) -> Di
     # Delete XML files.
     xml_list = glob.glob(os.path.join(ext_nsp_dir, '*.xml'))
     for xml in xml_list: os.remove(xml)
+
+    # Delete JPEG files.
+    jpg_list = glob.glob(os.path.join(ext_nsp_dir, '*.jpg'))
+    for jpg in jpg_list: os.remove(jpg)
+
+    jpg_list = glob.glob(os.path.join(ext_nsp_dir, '*.jpeg'))
+    for jpg in jpg_list: os.remove(jpg)
 
     # Build NSP title list from extracted files.
     nsp_title_list = utilsBuildNspTitleList(ext_nsp_dir, args.hactool, args.keys, thrd_id)
