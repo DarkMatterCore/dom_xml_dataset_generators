@@ -39,6 +39,7 @@ import datetime
 import glob
 import threading
 import psutil
+import time
 
 import argparse
 from typing import Generator, List, Union, Tuple, Dict, Pattern, TYPE_CHECKING
@@ -738,11 +739,11 @@ def utilsProcessNspDir(args: argparse.Namespace) -> None:
     results = [None] * num_threads
 
     for i in range(num_threads):
-        threads[i] = threading.Thread(name=str(i), target=utilsProcessNspList, args=(args, file_list_chunks, results))
+        threads[i] = threading.Thread(name=str(i), target=utilsProcessNspList, args=(args, file_list_chunks, results), daemon=True)
         threads[i].start()
 
     # Wait until all threads finish doing their job.
-    for i in range(num_threads): threads[i].join()
+    while len(threading.enumerate()) > 1: pass
 
     # Generate full list with results from all threads.
     for res in results: nsp_list.extend(res)
@@ -809,6 +810,7 @@ if __name__ == "__main__":
     try:
         ret = main()
     except KeyboardInterrupt:
+        time.sleep(0.2)
         eprint('\nScript interrupted.')
     except Exception as e:
         traceback.print_exc(file=sys.stderr)
