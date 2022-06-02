@@ -731,17 +731,18 @@ def utilsProcessNspDir(args: argparse.Namespace) -> None:
     if not file_list: raise Exception("Error: input directory holds no NSP/NSZ files.")
 
     # Create processing threads.
-    threads = [None] * args.num_threads
-    results = [None] * args.num_threads
+    file_list_chunks = list(filter(None, list(utilsGetListChunks(file_list, args.num_threads))))
+    num_threads = len(file_list_chunks)
 
-    file_list_chunks = list(utilsGetListChunks(file_list, args.num_threads))
-    for i in range(args.num_threads):
+    threads = [None] * num_threads
+    results = [None] * num_threads
+
+    for i in range(num_threads):
         threads[i] = threading.Thread(name=str(i), target=utilsProcessNspList, args=(args, file_list_chunks, results))
         threads[i].start()
 
     # Wait until all threads finish doing their job.
-    for i in range(args.num_threads):
-        threads[i].join()
+    for i in range(num_threads): threads[i].join()
 
     # Generate full list with results from all threads.
     for res in results: nsp_list.extend(res)
@@ -773,7 +774,7 @@ def main() -> int:
     parser.add_argument('--region', type=str, default=DEFAULT_REGION, help='Region string used in the output XML dataset. Defaults to "' + DEFAULT_REGION + '" if not provided.')
     parser.add_argument('--include-comment', action='store_true', default=False, help='Sets the comment2 value to a string that holds information about this script. Disabled by default.')
     parser.add_argument('--keep-folders', action='store_true', default=False, help='Keeps extracted NSP folders in the provided output directory. Disabled by default (all extracted folders are removed).')
-    parser.add_argument('--num-threads', type=utilsValidateThreadCount, metavar='VALUE', default=1, help='Sets the number of threads used to process input NSP/NSZ files. Defaults to 1 if not provided.')
+    parser.add_argument('--num-threads', type=utilsValidateThreadCount, metavar='VALUE', default=1, help='Sets the number of threads used to process input NSP/NSZ files. Defaults to 1 if not provided. Must not exceed ' + str(MAX_CPU_THREAD_COUNT) + '.')
 
     print(SCRIPT_NAME + '.\nRevision: ' + GIT_REV + '.\nMade by DarkMatterCore.\n')
 
