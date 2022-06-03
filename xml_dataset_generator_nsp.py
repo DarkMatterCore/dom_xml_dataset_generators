@@ -438,14 +438,14 @@ def utilsBuildNspTitleList(ext_nsp_dir: str, hactool: str, keys: str, thrd_id: s
                 ticket.update({ 'filename': tik_filename })
 
                 # Generate encrypted titlekey properties.
-                enc_titlekey_filename = rights_id + '.enctitlekey.tik'
+                enc_titlekey_filename = rights_id + '.enctitlekey.bin'
                 enc_titlekey_path = os.path.join(ext_nsp_dir, enc_titlekey_filename)
                 with open(enc_titlekey_path, 'wb') as etk: etk.write(bytes.fromhex(enc_titlekey['value']))
                 enc_titlekey = enc_titlekey | utilsCalculateFileChecksums(enc_titlekey_path)
                 enc_titlekey.update({ 'filename': enc_titlekey_filename })
 
                 # Generate decrypted titlekey properties.
-                dec_titlekey_filename = rights_id + '.dectitlekey.tik'
+                dec_titlekey_filename = rights_id + '.dectitlekey.bin'
                 dec_titlekey_path = os.path.join(ext_nsp_dir, dec_titlekey_filename)
                 with open(dec_titlekey_path, 'wb') as dtk: dtk.write(bytes.fromhex(dec_titlekey['value']))
                 dec_titlekey = dec_titlekey | utilsCalculateFileChecksums(dec_titlekey_path)
@@ -722,8 +722,9 @@ def utilsGenerateXmlDataset(args: argparse.Namespace, nsp_list: List) -> None:
                     etk = crypto['enc_titlekey']
                     dtk = crypto['dec_titlekey']
 
-                    # Add ticket info.
-                    rom_str += '      <rom forcename="%s" format="CDN" version="%d" size="%d" crc="%s" md5="%s" sha1="%s" sha256="%s" />\n' % (tik['filename'], title['version'], tik['size'], tik['crc'], tik['md5'], tik['sha1'], tik['sha256'])
+                    if not args.exclude_tik:
+                        # Add ticket info.
+                        rom_str += '      <rom forcename="%s" format="CDN" version="%d" size="%d" crc="%s" md5="%s" sha1="%s" sha256="%s" />\n' % (tik['filename'], title['version'], tik['size'], tik['crc'], tik['md5'], tik['sha1'], tik['sha256'])
 
                     # Add encrypted titlekey info.
                     rom_str += '      <rom forcename="%s" format="CDN" version="%d" size="%d" crc="%s" md5="%s" sha1="%s" sha256="%s" />\n' % (etk['filename'], title['version'], etk['size'], etk['crc'], etk['md5'], etk['sha1'], etk['sha256'])
@@ -786,6 +787,7 @@ def main() -> int:
     parser.add_argument('--keys', type=str, metavar='FILE', help='Path to Nintendo Switch keys file. Defaults to "' + KEYS_PATH + '".')
     parser.add_argument('--outdir', type=str, metavar='DIR', help='Path to output directory. Defaults to "' + OUTPUT_PATH + '".')
     parser.add_argument('--exclude-nsp', action='store_true', default=False, help='Excludes NSP metadata from the output XML dataset. Disabled by default.')
+    parser.add_argument('--exclude-tik', action='store_true', default=False, help='Excludes ticket metadata from the output XML dataset. Disabled by default.')
     parser.add_argument('--section', type=str, default='', help='Section string used in the output XML dataset. Optional.')
     parser.add_argument('--dump-date', type=datetime.date.fromisoformat, default=argparse.SUPPRESS, metavar='YYYY-MM-DD', help='Dump date used in the output XML dataset. Defaults to current date if not provided.')
     parser.add_argument('--release-date', type=datetime.date.fromisoformat, default=argparse.SUPPRESS, metavar='YYYY-MM-DD', help='Release date used in the output XML dataset. Optional.')
