@@ -168,30 +168,30 @@ def utilsRunHactool(hactool: str, keys: str, type: str, args: List[str]) -> subp
     proc = subprocess.run(hactool_args, capture_output=True, encoding='utf-8')
     return proc
 
-def utilsExtractNsp(nsp_path: str, hactool: str, keys: str, outdir: str) -> None:
+def utilsExtractNsp(nsp_path: str, hactool: str, keys: str, outdir: str) -> bool:
     # Extract files from the provided NSP.
     proc = utilsRunHactool(hactool, keys, 'pfs0', ['--outdir=' + outdir, nsp_path])
-    if (not proc.stdout) or (proc.returncode != 0) or (not os.path.exists(outdir)): raise Exception('Error: failed to extract NSP "%s".' % (os.path.basename(nsp_path)))
+    return (proc.stdout and (proc.returncode == 0) and os.path.exists(outdir))
 
 def utilsExtractCnmtNca(nca_path: str, hactool: str, keys: str, outdir: str) -> str:
     # Extract files from NCA FS section 0.
     proc = utilsRunHactool(hactool, keys, 'nca', ['--section0dir=' + outdir, nca_path])
-    if (not proc.stdout) or (proc.returncode != 0) or (not os.path.exists(outdir)): raise Exception('Error: failed to extract PFS0 from NCA "%s".' % (os.path.basename(nca_path)))
+    if (not proc.stdout) or (proc.returncode != 0) or (not os.path.exists(outdir)): return ''
 
     # Get extracted CNMT filename from hactool's output.
     cnmt_filename = re.search(HACTOOL_SAVING_REGEX, proc.stdout)
-    if (not cnmt_filename): raise Exception('Error: failed to extract PFS0 from NCA "%s".' % (os.path.basename(nca_path)))
+    if (not cnmt_filename): return ''
 
     cnmt_filename = cnmt_filename.group(1).strip()
-    if not os.path.exists(os.path.join(outdir, cnmt_filename)): raise Exception('Error: failed to extract PFS0 from NCA "%s".' % (os.path.basename(nca_path)))
+    if not os.path.exists(os.path.join(outdir, cnmt_filename)): return ''
 
     return cnmt_filename
 
-def utilsExtractNcaFsSection(nca_path: str, hactool: str, keys: str, outdir: str, idx: int) -> None:
+def utilsExtractNcaFsSection(nca_path: str, hactool: str, keys: str, outdir: str, idx: int) -> bool:
     # Extract files from the selected NCA FS section.
-    if (idx < 0) or (idx > 3): raise Exception('Error: invalid NCA FS section index for "%s" (%d).' % (os.path.basename(nca_path), idx))
+    if (idx < 0) or (idx > 3): return False
     proc = utilsRunHactool(hactool, keys, 'nca', ['--section' + str(idx) + 'dir=' + outdir, nca_path])
-    if (not proc.stdout) or (proc.returncode != 0) or (not os.path.exists(outdir)): raise Exception('Error: failed to extract section %d from NCA "%s".' % (idx, os.path.basename(nca_path)))
+    return (proc.stdout and (proc.returncode == 0) and os.path.exists(outdir))
 
 def utilsConvertNszToNsp(outdir: str, nsz_path: str) -> List:
     nsz_args = ['nsz', '-D', '-o', outdir, nsz_path]
@@ -200,7 +200,7 @@ def utilsConvertNszToNsp(outdir: str, nsz_path: str) -> List:
     proc = subprocess.run(nsz_args, capture_output=True, encoding='utf-8')
     nsp_size = (os.path.getsize(nsp_path) if os.path.exists(nsp_path) else 0)
 
-    if (not proc.stdout) or (proc.returncode != 0) or (not nsp_size): raise Exception('Error: failed to convert NSZ "%s" to NSP.' % (os.path.basename(nsz_path)))
+    if (not proc.stdout) or (proc.returncode != 0) or (not nsp_size): return []
 
     return [nsp_path, nsp_size]
 
@@ -271,7 +271,7 @@ def utilsGetNcaInfo(thrd_id: str, hactool: str, keys: str, nca_path: str, titlek
         msg = '(Thread ' + thrd_id + ') Failed to retrieve NCA info'
         hactool_stderr = proc.stderr.strip()
         if hactool_stderr: msg += ' (%s)' % (hactool_stderr)
-        print(msg + '.')
+        eprint(msg + '.')
         return {}
 
     # Parse hactool's output.
@@ -283,7 +283,7 @@ def utilsGetNcaInfo(thrd_id: str, hactool: str, keys: str, nca_path: str, titlek
     verify = (len(re.findall(HACTOOL_VERIFY_REGEX, proc.stdout)) == 0)
 
     if (not dist_type) or (not cnt_type) or (not crypto_type):
-        print('(Thread ' + thrd_id + ') Failed to parse hactool\'s output.')
+        eprint('(Thread ' + thrd_id + ') Failed to parse hactool\'s output.')
         return {}
 
     dist_type = dist_type.group(1).lower()
@@ -291,23 +291,23 @@ def utilsGetNcaInfo(thrd_id: str, hactool: str, keys: str, nca_path: str, titlek
     crypto_type = crypto_type.group(1).lower().split()[0]
 
     if (crypto_type == 'titlekey') and (not rights_id):
-        print('(Thread ' + thrd_id + ') Failed to parse Rights ID from hactool\'s output.')
+        eprint('(Thread ' + thrd_id + ') Failed to parse Rights ID from hactool\'s output.')
         return {}
 
     rights_id = (rights_id.group(1).lower() if rights_id else '')
     dec_titlekey = (dec_titlekey.group(1).lower() if dec_titlekey else '')
 
     if dist_type != 'download':
-        print('(Thread ' + thrd_id + ') Invalid distribution type (got "%s", expected "%s").' % (dist_type, NCA_DISTRIBUTION_TYPE))
+        eprint('(Thread ' + thrd_id + ') Invalid distribution type (got "%s", expected "%s").' % (dist_type, NCA_DISTRIBUTION_TYPE))
         return {}
 
     expected_cnt_type = expected_cnt_type.lower()
     if expected_cnt_type and cnt_type != expected_cnt_type:
-        print('(Thread ' + thrd_id + ') Invalid content type (got "%s", expected "%s").' % (cnt_type, expected_cnt_type))
+        eprint('(Thread ' + thrd_id + ') Invalid content type (got "%s", expected "%s").' % (cnt_type, expected_cnt_type))
         return {}
 
     if (not verify) and ((crypto_type != 'titlekey') or titlekey):
-        print('(Thread ' + thrd_id + ') Signature/hash verification failed.')
+        eprint('(Thread ' + thrd_id + ') Signature/hash verification failed.')
         return {}
 
     nca_info = {
@@ -377,7 +377,12 @@ def utilsBuildNspTitleList(ext_nsp_dir: str, hactool: str, keys: str, thrd_id: s
         contents.append(nca_info)
 
         # Extract CNMT file from NCA.
-        cnmt_path = os.path.join(ext_nsp_dir, utilsExtractCnmtNca(entry.path, hactool, keys, ext_nsp_dir))
+        cnmt_filename = utilsExtractCnmtNca(entry.path, hactool, keys, ext_nsp_dir)
+        if not cnmt_filename:
+            eprint('(Thread ' + thrd_id + ') Error: failed to extract Meta NCA. Skipping current title.')
+            continue
+
+        cnmt_path = os.path.join(ext_nsp_dir, cnmt_filename)
 
         # Parse CNMT file.
         cnmt = Cnmt.from_file(cnmt_path)
@@ -410,7 +415,7 @@ def utilsBuildNspTitleList(ext_nsp_dir: str, hactool: str, keys: str, thrd_id: s
 
                 tik = Tik.from_file(tik_path)
                 if tik.titlekey_type != Tik.TitlekeyType.common:
-                    print('(Thread ' + thrd_id + ') Error: ticket "%s" doesn\'t use common crypto. Skipping current title.' % (tik_filename))
+                    eprint('(Thread ' + thrd_id + ') Error: ticket "%s" doesn\'t use common crypto. Skipping current title.' % (tik_filename))
                     success = False
                     break
 
@@ -452,7 +457,7 @@ def utilsBuildNspTitleList(ext_nsp_dir: str, hactool: str, keys: str, thrd_id: s
 
             # Verify content ID.
             if (packaged_content_info.info.id != packaged_content_info.hash[:16]) or (packaged_content_info.info.id.hex().lower() != nca_info['sha256'][:32]):
-                print('(Thread ' + thrd_id + ') Error: content ID / hash mismatch.')
+                eprint('(Thread ' + thrd_id + ') Error: content ID / hash mismatch.')
                 continue
 
             # Replace NCA info's content type with the type stored in the CNMT, because it's more descriptive.
@@ -464,40 +469,41 @@ def utilsBuildNspTitleList(ext_nsp_dir: str, hactool: str, keys: str, thrd_id: s
             # Check if we're dealing with the first control NCA.
             if (packaged_content_info.info.type == Cnmt.ContentType.control) and (packaged_content_info.info.id_offset == 0):
                 # Extract control NCA.
-                utilsExtractNcaFsSection(content_path, hactool, keys, ext_nsp_dir, 0)
+                if utilsExtractNcaFsSection(content_path, hactool, keys, ext_nsp_dir, 0):
+                    # Parse NACP file.
+                    nacp_path = os.path.join(ext_nsp_dir, 'control.nacp')
+                    nacp = Nacp.from_file(nacp_path)
 
-                # Parse NACP file.
-                nacp_path = os.path.join(ext_nsp_dir, 'control.nacp')
-                nacp = Nacp.from_file(nacp_path)
+                    # Get relevant info.
+                    for lang in Nacp.Language:
+                        if lang.name == 'count': break
 
-                # Get relevant info.
-                for lang in Nacp.Language:
-                    if lang.name == 'count': break
+                        if not nacp.supported_language.languages[lang.value]: continue
 
-                    if not nacp.supported_language.languages[lang.value]: continue
+                        control_title = nacp.title[lang.value]
 
-                    control_title = nacp.title[lang.value]
+                        control['languages'].update({
+                            lang.name: {
+                                'display_name': control_title.name.replace('&', HTML_AMPERSAND),
+                                'publisher': control_title.publisher.replace('&', HTML_AMPERSAND)
+                            }
+                        })
 
-                    control['languages'].update({
-                        lang.name: {
-                            'display_name': control_title.name.replace('&', HTML_AMPERSAND),
-                            'publisher': control_title.publisher.replace('&', HTML_AMPERSAND)
-                        }
-                    })
+                        dom_lang = DOM_LANGUAGES.get(lang.name, '')
+                        if dom_lang: control['supported_languages'].append(dom_lang)
 
-                    dom_lang = DOM_LANGUAGES.get(lang.name, '')
-                    if dom_lang: control['supported_languages'].append(dom_lang)
+                    control['display_version'] = nacp.display_version.replace('&', HTML_AMPERSAND)
+                    control['demo'] = nacp.attribute.demo
 
-                control['display_version'] = nacp.display_version.replace('&', HTML_AMPERSAND)
-                control['demo'] = nacp.attribute.demo
+                    # Close and delete NACP.
+                    nacp.close()
+                    os.remove(nacp_path)
 
-                # Close and delete NACP.
-                nacp.close()
-                os.remove(nacp_path)
-
-                # Delete DAT files.
-                dat_list = glob.glob(os.path.join(ext_nsp_dir, '*.dat'))
-                for dat in dat_list: os.remove(dat)
+                    # Delete DAT files.
+                    dat_list = glob.glob(os.path.join(ext_nsp_dir, '*.dat'))
+                    for dat in dat_list: os.remove(dat)
+                else:
+                    eprint('(Thread ' + thrd_id + ') Error: failed to extract Control NCA.')
 
         if success and len(contents) > 1:
             # Update output list.
@@ -546,7 +552,12 @@ def utilsProcessNspFile(args: argparse.Namespace, thrd_id: str, nsp: List) -> Di
     # Convert NSZ back to NSP, if needed.
     if is_nsz:
         print('(Thread ' + thrd_id + ') Converting NSZ to NSP...')
-        nsp_path, nsp_size = utilsConvertNszToNsp(args.outdir, nsp_path)
+        new_nsp = utilsConvertNszToNsp(args.outdir, nsp_path)
+        if not new_nsp:
+            eprint('(Thread ' + thrd_id + ') Error: failed to convert NSZ to NSP.')
+            return {}
+
+        nsp_path, nsp_size = new_nsp
 
     if not args.exclude_nsp:
         # Get NSP info.
@@ -556,7 +567,9 @@ def utilsProcessNspFile(args: argparse.Namespace, thrd_id: str, nsp: List) -> Di
 
     # Extract NSP.
     ext_nsp_dir = os.path.join(args.outdir, GIT_REV + '_' + utilsGetRandomString(8) + '_' + thrd_id)
-    utilsExtractNsp(nsp_path, args.hactool, args.keys, ext_nsp_dir)
+    if not utilsExtractNsp(nsp_path, args.hactool, args.keys, ext_nsp_dir):
+        eprint('(Thread ' + thrd_id + ') Error: failed to extract NSP.')
+        return {}
 
     # Delete XML files.
     xml_list = glob.glob(os.path.join(ext_nsp_dir, '*.xml'))
