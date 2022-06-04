@@ -367,7 +367,7 @@ def utilsBuildNspTitleList(ext_nsp_dir: str, hactool: str, keys: str, thrd_id: s
         file_size = entry.stat().st_size
         if not file_size: continue
 
-        print('(Thread ' + thrd_id + ') Parsing Meta NCA: "%s".' % (os.path.basename(entry.path)))
+        print('(Thread ' + thrd_id + ') Parsing Meta NCA: "%s".' % (os.path.basename(entry.path)), flush=True)
 
         # Retrieve CNMT NCA information using hactool.
         nca_info = utilsGetNcaInfo(thrd_id, hactool, keys, entry.path, enc_titlekey['value'], 'meta')
@@ -387,8 +387,6 @@ def utilsBuildNspTitleList(ext_nsp_dir: str, hactool: str, keys: str, thrd_id: s
         # Parse CNMT file.
         cnmt = Cnmt.from_file(cnmt_path)
         for i in range(cnmt.header.content_count):
-            sys.stdout.flush()
-
             # Get current content info entry.
             packaged_content_info = cnmt.packaged_content_infos[i]
 
@@ -397,7 +395,7 @@ def utilsBuildNspTitleList(ext_nsp_dir: str, hactool: str, keys: str, thrd_id: s
             content_path = os.path.join(ext_nsp_dir, content_filename)
             content_type = Cnmt.ContentType(packaged_content_info.info.type).name
 
-            print('(Thread ' + thrd_id + ') Parsing %s NCA: "%s".' % (utilsCapitalizeString(content_type, ' '), content_filename))
+            print('(Thread ' + thrd_id + ') Parsing %s NCA: "%s".' % (utilsCapitalizeString(content_type, ' '), content_filename), flush=True)
 
             # Retrieve NCA information using hactool.
             nca_info = utilsGetNcaInfo(thrd_id, hactool, keys, content_path, enc_titlekey['value'])
@@ -525,8 +523,6 @@ def utilsBuildNspTitleList(ext_nsp_dir: str, hactool: str, keys: str, thrd_id: s
         cnmt.close()
         os.remove(cnmt_path)
 
-        sys.stdout.flush()
-
     # Close directory scan.
     dir_scan.close()
 
@@ -551,7 +547,7 @@ def utilsProcessNspFile(args: argparse.Namespace, thrd_id: str, nsp: List) -> Di
 
     # Convert NSZ back to NSP, if needed.
     if is_nsz:
-        print('(Thread ' + thrd_id + ') Converting NSZ to NSP...')
+        print('(Thread ' + thrd_id + ') Converting NSZ to NSP...', flush=True)
         new_nsp = utilsConvertNszToNsp(args.outdir, nsp_path)
         if not new_nsp:
             eprint('(Thread ' + thrd_id + ') Error: failed to convert NSZ to NSP.')
@@ -620,7 +616,7 @@ def utilsProcessNspList(args: argparse.Namespace, file_list_chunks: List, result
 
     # Process NSP files.
     for nsp in thrd_file_list:
-        print('(Thread %d) Processing "%s"...' % (thrd_id, os.path.basename(nsp[0])))
+        print('(Thread %d) Processing "%s"...' % (thrd_id, os.path.basename(nsp[0])), flush=True)
 
         nsp_info = utilsProcessNspFile(args, str(thrd_id), nsp)
         if not nsp_info: continue
@@ -800,7 +796,7 @@ def main() -> int:
     parser.add_argument('--keep-folders', action='store_true', default=False, help='Keeps extracted NSP folders in the provided output directory. Disabled by default (all extracted folders are removed).')
     parser.add_argument('--num-threads', type=utilsValidateThreadCount, metavar='VALUE', default=1, help='Sets the number of threads used to process input NSP/NSZ files. Defaults to 1 if not provided. Must not exceed ' + str(MAX_CPU_THREAD_COUNT) + '.')
 
-    print(SCRIPT_NAME + '.\nRevision: ' + GIT_REV + '.\nMade by DarkMatterCore.\n')
+    print(SCRIPT_NAME + '.\nRevision: ' + GIT_REV + '.\nMade by DarkMatterCore.\n', flush=True)
 
     # Parse arguments. Make sure to escape ampersand characters in input strings.
     args = parser.parse_args()
