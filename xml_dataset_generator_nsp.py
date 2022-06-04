@@ -711,10 +711,7 @@ def utilsGenerateXmlDataset(args: argparse.Namespace, nsp_list: List) -> None:
                     if cnt['cnt_type'] == 'meta': cnt_filename += '.cnmt'
                     cnt_filename += '.nca'
 
-                    rom_str += '      <rom forcename="%s" format="CDN" version="%d" size="%d" crc="%s" md5="%s" sha1="%s" sha256="%s" />\n' % (cnt_filename, title['version'], cnt['size'], cnt['crc'], cnt['md5'], cnt['sha1'], cnt['sha256'])
-
-                    if (cnt['cnt_type'] != 'program') and (cnt['cnt_type'] != 'data') and (cnt['cnt_type'] != 'delta_fragment'):
-                        rom_str += '      <rom forcename="%s" format="CDNMeta" version="%d" size="%d" crc="%s" md5="%s" sha1="%s" sha256="%s" />\n' % (cnt_filename, title['version'], cnt['size'], cnt['crc'], cnt['md5'], cnt['sha1'], cnt['sha256'])
+                    rom_str += '      <rom forcename="%s" format="CDN" version="%d" size="%d" crc="%s" md5="%s" sha1="%s" sha256="%s" filter="%s" />\n' % (cnt_filename, title['version'], cnt['size'], cnt['crc'], cnt['md5'], cnt['sha1'], cnt['sha256'], utilsCapitalizeString(cnt['cnt_type']))
 
                 crypto = title['crypto']
                 if crypto['rights_id'] and crypto['ticket']:
@@ -780,6 +777,10 @@ def utilsValidateThreadCount(num_threads: str) -> int:
 def main() -> int:
     # Get git commit information.
     utilsGetGitInfo()
+
+    # Reconfigure console output.
+    sys.stdout.reconfigure(encoding='utf-8')
+    sys.stderr.reconfigure(encoding='utf-8')
 
     parser = argparse.ArgumentParser(description='Generate a XML dataset from Nintendo Submission Package (NSP) files.')
     parser.add_argument('--nspdir', type=str, metavar='DIR', help='Path to directory with NSP files. Defaults to "' + NSP_PATH + '".')
