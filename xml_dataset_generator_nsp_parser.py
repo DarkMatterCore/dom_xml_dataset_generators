@@ -30,7 +30,7 @@ def utilsGetPath(path_arg: str, fallback_path: str, is_file: bool, create: bool 
 def utilsProcessLogfile(logfile: str) -> None:
     msg = {}
 
-    with open(logfile, 'r') as fd:
+    with open(logfile, 'r', encoding='utf-8') as fd:
         for idx, line in enumerate(fd):
             # Get current line.
             cur_line = line.strip()
