@@ -195,7 +195,7 @@ def utilsExtractNcaFsSection(nca_path: str, hactool: str, keys: str, outdir: str
 
 def utilsConvertNszToNsp(outdir: str, nsz_path: str) -> List:
     nsz_args = ['nsz', '-D', '-o', outdir, nsz_path]
-    nsp_path = os.path.join(outdir, nsz_path[:-4] + '.nsp')
+    nsp_path = os.path.join(outdir, nsz_path.split(os.sep)[-1][:-4] + '.nsp')
 
     proc = subprocess.run(nsz_args, capture_output=True, encoding='utf-8')
     nsp_size = (os.path.getsize(nsp_path) if os.path.exists(nsp_path) else 0)
