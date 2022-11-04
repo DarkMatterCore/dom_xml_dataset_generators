@@ -76,7 +76,7 @@ DOM_LANGUAGES: Dict = {
     'japanese':               'Ja',
     'french':                 'Fr-FR',
     'german':                 'De',
-    'latin_american_spanish': 'Es-LX',
+    'latin_american_spanish': 'Es-XL',
     'spanish':                'Es-ES',
     'italian':                'It',
     'dutch':                  'Nl',
@@ -251,7 +251,7 @@ def utilsCalculateFileChecksums(file: str) -> Dict:
             sha256_hash.update(chunk)
 
     checksums = {
-        'crc': '{:08x}'.format(crc32_hash),
+        'crc32': '{:08x}'.format(crc32_hash),
         'md5': md5_hash.hexdigest().lower(),
         'sha1': sha1_hash.hexdigest().lower(),
         'sha256': sha256_hash.hexdigest().lower(),
@@ -655,7 +655,19 @@ def utilsGenerateXmlDataset(args: argparse.Namespace, nsp_list: List) -> None:
                 for lang in Nacp.Language:
                     if lang.name == 'count': break
                     if lang.name not in control['languages']: continue
+
+                    # Get archive name.
                     archive_name = control['languages'][lang.name]['display_name']
+
+                    # Remove illegal filesystem characters.
+                    archive_name = re.sub(r"[\\/*?\"<>|]", '', archive_name)
+
+                    # Replace colons.
+                    archive_name = archive_name.replace(':', ' - ')
+
+                    # Replace consecutive whitespaces with a single one.
+                    archive_name = ' '.join(archive_name.split())
+
                     break
 
                 if not archive_name: archive_name = title['title_id']
@@ -669,8 +681,7 @@ def utilsGenerateXmlDataset(args: argparse.Namespace, nsp_list: List) -> None:
 
                 # Generate XML entry.
                 title_str  = '  <game name="">\n'
-                title_str += '    <archive name="%s" namealt="" region="%s" languages="%s" langchecked="0" version="%s" devstatus="%s" additional="" special1="" special2="" />\n' % (archive_name, args.region, ','.join(control['supported_languages']), '' if (title['version'] == 0) else 'v{:d}'.format(title['version']), dev_status)
-                title_str += '    <flags bios="0" licensed="1" pirate="0" physical="0" complete="1" nodump="0" public="1" dat="1" />\n'
+                title_str += '    <archive name="%s" name_alt="" region="%s" languages="%s" langchecked="0" version="%s" devstatus="%s" additional="eShop" special1="" special2="" />\n' % (archive_name, args.region, 'En' if (not control['supported_languages']) else ','.join(control['supported_languages']), '' if (title['version'] == 0) else 'v{:d}'.format(title['version']), dev_status)
 
                 if control['languages'] or control['display_version']:
                     title_str += '    <media>\n'
@@ -691,15 +702,15 @@ def utilsGenerateXmlDataset(args: argparse.Namespace, nsp_list: List) -> None:
                     title_str += '    </media>\n'
 
                 title_str += '    <source>\n'
-                title_str += '      <details section="%s" rominfo="" originalformat="NSP" dumpdate="%s" knowndumpdate="%d" releasedate="%s" knownreleasedate="%d" dumper="%s" project="%s" tool="%s" region="%s" origin="" comment1="" comment2="%s" link1="" link2="" mediatitle="" />\n' % (args.section, args.dump_date, int(dump_date_provided), args.release_date, int(release_date_provided), args.dumper, args.project, args.tool, args.region, comment2_str)
-                title_str += '      <serials mediaserial1="" mediaserial2="" pcbserial="" romchipserial1="" romchipserial2="" lockoutserial="" savechipserial="" chipserial="" boxserial="" mediastamp="" boxbarcode="" digitalserial1="%s" digitalserial2="" />\n' % (title['title_id'])
+                title_str += '      <details section="%s" rominfo="" originalformat="NSP" d_date="%s" d_date_info="%d" r_date="%s" r_date_info="%d" dumper="%s" project="%s" tool="%s" region="%s" origin="" comment1="" comment2="%s" link1="" link2="" media_title="" />\n' % (args.section, args.dump_date, int(dump_date_provided), args.release_date, int(release_date_provided), args.dumper, args.project, args.tool, args.region, comment2_str)
+                title_str += '      <serials media_serial1="" media_serial2="" pcb_serial="" romchip_serial1="" romchip_serial2="" lockout_serial="" savechip_serial="" chip_serial="" box_serial="" mediastamp="" box_barcode="" digital_serial1="%s" digital_serial2="" />\n' % (title['title_id'])
 
                 # Generate ROM entries.
                 rom_str = ''
 
                 if nsp:
                     # Add NSP information.
-                    rom_str += '      <rom forcename="%s" format="NSP" version="%d" size="%d" crc="%s" md5="%s" sha1="%s" sha256="%s" />\n' % (nsp['filename'], title['version'], nsp['size'], nsp['crc'], nsp['md5'], nsp['sha1'], nsp['sha256'])
+                    rom_str += '      <file forcename="" extension="nsp" format="NSP" version="%d" size="%d" crc32="%s" md5="%s" sha1="%s" sha256="%s" />\n' % (title['version'], nsp['size'], nsp['crc32'], nsp['md5'], nsp['sha1'], nsp['sha256'])
 
                 for cnt in title['contents']:
                     # Add current NCA information.
@@ -707,7 +718,7 @@ def utilsGenerateXmlDataset(args: argparse.Namespace, nsp_list: List) -> None:
                     if cnt['cnt_type'] == 'meta': cnt_filename += '.cnmt'
                     cnt_filename += '.nca'
 
-                    rom_str += '      <rom forcename="%s" format="CDN" version="%d" size="%d" crc="%s" md5="%s" sha1="%s" sha256="%s" filter="%s" />\n' % (cnt_filename, title['version'], cnt['size'], cnt['crc'], cnt['md5'], cnt['sha1'], cnt['sha256'], utilsCapitalizeString(cnt['cnt_type']))
+                    rom_str += '      <file forcename="%s" format="CDN" version="%d" size="%d" crc32="%s" md5="%s" sha1="%s" sha256="%s" filter="%s" />\n' % (cnt_filename, title['version'], cnt['size'], cnt['crc32'], cnt['md5'], cnt['sha1'], cnt['sha256'], utilsCapitalizeString(cnt['cnt_type']))
 
                 crypto = title['crypto']
                 if crypto['rights_id'] and crypto['ticket']:
@@ -717,13 +728,13 @@ def utilsGenerateXmlDataset(args: argparse.Namespace, nsp_list: List) -> None:
 
                     if not args.exclude_tik:
                         # Add ticket info.
-                        rom_str += '      <rom forcename="%s" format="CDN" version="%d" size="%d" crc="%s" md5="%s" sha1="%s" sha256="%s" />\n' % (tik['filename'], title['version'], tik['size'], tik['crc'], tik['md5'], tik['sha1'], tik['sha256'])
+                        rom_str += '      <file forcename="%s" format="CDN" version="%d" size="%d" crc32="%s" md5="%s" sha1="%s" sha256="%s" />\n' % (tik['filename'], title['version'], tik['size'], tik['crc32'], tik['md5'], tik['sha1'], tik['sha256'])
 
                     # Add encrypted titlekey info.
-                    rom_str += '      <rom forcename="%s" format="CDN" version="%d" size="%d" crc="%s" md5="%s" sha1="%s" sha256="%s" />\n' % (etk['filename'], title['version'], etk['size'], etk['crc'], etk['md5'], etk['sha1'], etk['sha256'])
+                    rom_str += '      <file forcename="%s" format="CDN" version="%d" size="%d" crc32="%s" md5="%s" sha1="%s" sha256="%s" />\n' % (etk['filename'], title['version'], etk['size'], etk['crc32'], etk['md5'], etk['sha1'], etk['sha256'])
 
                     # Add decrypted titlekey info.
-                    rom_str += '      <rom forcename="%s" format="CDN" version="%d" size="%d" crc="%s" md5="%s" sha1="%s" sha256="%s" />\n' % (dtk['filename'], title['version'], dtk['size'], dtk['crc'], dtk['md5'], dtk['sha1'], dtk['sha256'])
+                    rom_str += '      <file forcename="%s" format="CDN" version="%d" size="%d" crc32="%s" md5="%s" sha1="%s" sha256="%s" />\n' % (dtk['filename'], title['version'], dtk['size'], dtk['crc32'], dtk['md5'], dtk['sha1'], dtk['sha256'])
 
                 # Update title string.
                 title_str += rom_str
