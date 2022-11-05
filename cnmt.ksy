@@ -9,13 +9,22 @@ seq:
   - id: extended_header
     size: _root.header.extended_header_size
     type:
-      switch-on: _root.header.content_meta_type
+      switch-on: |
+        _root.header.content_meta_type == content_meta_type::system_update ? dummy_meta_type::system_update
+        : _root.header.content_meta_type == content_meta_type::application ? dummy_meta_type::application
+        : _root.header.content_meta_type == content_meta_type::patch ? dummy_meta_type::patch
+        : _root.header.content_meta_type == content_meta_type::add_on_content ? (_root.header.extended_header_size == 0x18 ? dummy_meta_type::add_on_content : dummy_meta_type::add_on_content_legacy)
+        : _root.header.content_meta_type == content_meta_type::delta ? dummy_meta_type::delta
+        : _root.header.content_meta_type == content_meta_type::data_patch ? dummy_meta_type::data_patch
+        : dummy_meta_type::invalid
       cases:
-        'content_meta_type::system_update': system_update_extended_header
-        'content_meta_type::application': application_extended_header
-        'content_meta_type::patch': patch_extended_header
-        'content_meta_type::add_on_content': aoc_extended_header
-        'content_meta_type::delta': delta_extended_header
+        'dummy_meta_type::system_update': system_update_extended_header
+        'dummy_meta_type::application': application_extended_header
+        'dummy_meta_type::patch': patch_extended_header
+        'dummy_meta_type::add_on_content': aoc_extended_header
+        'dummy_meta_type::add_on_content_legacy': aoc_legacy_extended_header
+        'dummy_meta_type::delta': delta_extended_header
+        'dummy_meta_type::data_patch': data_patch_extended_header
         _: dummy
   - id: packaged_content_infos
     type: packaged_content_info
@@ -33,13 +42,23 @@ seq:
         'content_meta_type::system_update': system_update_extended_data
         'content_meta_type::patch': patch_extended_data
         'content_meta_type::delta': delta_extended_data
+        'content_meta_type::data_patch': patch_extended_data # TODO: check if this is right
         _: dummy
   - id: digest
     size: 0x20
 instances:
   extended_data_size:
-    value: '(_root.header.content_meta_type == content_meta_type::system_update ? extended_header.as<system_update_extended_header>.extended_data_size : (_root.header.content_meta_type == content_meta_type::patch ? extended_header.as<patch_extended_header>.extended_data_size : (_root.header.content_meta_type == content_meta_type::delta ? extended_header.as<delta_extended_header>.extended_data_size : 0)))'
+    value: '(_root.header.content_meta_type == content_meta_type::system_update ? extended_header.as<system_update_extended_header>.extended_data_size : (_root.header.content_meta_type == content_meta_type::patch ? extended_header.as<patch_extended_header>.extended_data_size : (_root.header.content_meta_type == content_meta_type::delta ? extended_header.as<delta_extended_header>.extended_data_size : (_root.header.content_meta_type == content_meta_type::data_patch ? extended_header.as<data_patch_extended_header>.extended_data_size : 0))))'
 enums:
+  dummy_meta_type:
+    0x0:  system_update
+    0x1:  application
+    0x2:  patch
+    0x3:  add_on_content
+    0x4:  add_on_content_legacy
+    0x5:  delta
+    0x6:  data_patch
+    0xff: invalid
   content_meta_type:
     0x0:  unknown
     0x1:  system_program
@@ -51,6 +70,7 @@ enums:
     0x81: patch
     0x82: add_on_content
     0x83: delta
+    0x84: data_patch
   storage_type:
     0x0: none
     0x1: host
@@ -98,9 +118,9 @@ types:
   application_version:
     seq:
       - id: private_ver
-        type: b16
+        type: u2
       - id: release_ver
-        type: b16
+        type: u2
     instances:
       raw_version:
         value: '(release_ver.as<u4> << 16) | private_ver'
@@ -179,6 +199,18 @@ types:
         type: u8
       - id: required_application_version
         type: application_version
+      - id: content_accessibilities
+        type: u1
+      - id: reserved
+        size: 3
+      - id: data_patch_id
+        type: u8
+  aoc_legacy_extended_header:
+    seq:
+      - id: application_id
+        type: u8
+      - id: required_application_version
+        type: application_version
       - id: reserved
         size: 4
   delta_extended_header:
@@ -189,17 +221,36 @@ types:
         type: u4
       - id: reserved
         size: 4
+  data_patch_extended_header:
+    seq:
+      - id: data_id
+        type: u8
+      - id: application_id
+        type: u8
+      - id: required_application_version
+        type: application_version
+      - id: extended_data_size
+        type: u4
+      - id: reserved
+        size: 8
   content_info:
     seq:
       - id: id
         size: 0x10
-      - id: size
-        size: 6
+      - id: size_low
+        type: u4
+      - id: size_high
+        type: u1
+      - id: attr
+        type: u1
       - id: type
         type: u1
         enum: content_type
       - id: id_offset
         type: u1
+    instances:
+      raw_size:
+        value: '(size_high.as<u8> << 32) | size_low'
   packaged_content_info:
     seq:
       - id: hash
@@ -305,11 +356,11 @@ types:
     seq:
       - id: src_patch_id
         type: u8
-      - id: dest_patch_id
+      - id: dst_patch_id
         type: u8
       - id: src_version
         type: application_version
-      - id: dest_version
+      - id: dst_version
         type: application_version
       - id: download_size
         type: u8
@@ -319,11 +370,11 @@ types:
     seq:
       - id: src_patch_id
         type: u8
-      - id: dest_patch_id
+      - id: dst_patch_id
         type: u8
       - id: src_version
         type: application_version
-      - id: dest_version
+      - id: dst_version
         type: application_version
       - id: fragment_set_count
         type: u2
@@ -337,15 +388,15 @@ types:
     seq:
       - id: src_content_id
         size: 0x10
-      - id: dest_content_id
+      - id: dst_content_id
         size: 0x10
       - id: src_size_low
         type: u4
       - id: src_size_high
         type: u2
-      - id: dest_size_low
+      - id: dst_size_low
         type: u4
-      - id: dest_size_high
+      - id: dst_size_high
         type: u2
       - id: fragment_count
         type: u2
@@ -357,6 +408,11 @@ types:
         enum: update_type
       - id: reserved
         size: 4
+    instances:
+      src_size:
+        value: '(src_size_high.as<u8> << 32) | src_size_low'
+      dst_size:
+        value: '(dst_size_high.as<u8> << 32) | dst_size_low'
   patch_fragment_indicator:
     seq:
       - id: content_info_index
@@ -417,11 +473,11 @@ types:
     seq:
       - id: src_patch_id
         type: u8
-      - id: dest_patch_id
+      - id: dst_patch_id
         type: u8
       - id: src_version
         type: application_version
-      - id: dest_version
+      - id: dst_version
         type: application_version
       - id: fragment_set_count
         type: u2
