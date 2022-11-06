@@ -7,6 +7,7 @@ seq:
   - id: header
     type: packaged_content_meta_header
   - id: extended_header
+    if: _root.header.extended_header_size > 0
     size: _root.header.extended_header_size
     type:
       switch-on: |
@@ -35,6 +36,7 @@ seq:
     repeat: expr
     repeat-expr: _root.header.content_meta_count
   - id: extended_data
+    if: extended_data_size > 0
     size: extended_data_size
     type:
       switch-on: _root.header.content_meta_type
@@ -48,6 +50,7 @@ seq:
     size: 0x20
 instances:
   extended_data_size:
+    if: _root.header.extended_header_size > 0
     value: '(_root.header.content_meta_type == content_meta_type::system_update ? extended_header.as<system_update_extended_header>.extended_data_size : (_root.header.content_meta_type == content_meta_type::patch ? extended_header.as<patch_extended_header>.extended_data_size : (_root.header.content_meta_type == content_meta_type::delta ? extended_header.as<delta_extended_header>.extended_data_size : (_root.header.content_meta_type == content_meta_type::data_patch ? extended_header.as<data_patch_extended_header>.extended_data_size : 0))))'
 enums:
   dummy_meta_type:
@@ -118,9 +121,9 @@ types:
   application_version:
     seq:
       - id: private_ver
-        type: u2
+        type: b16
       - id: release_ver
-        type: u2
+        type: b16
     instances:
       raw_version:
         value: '(release_ver.as<u4> << 16) | private_ver'

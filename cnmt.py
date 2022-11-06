@@ -73,39 +73,41 @@ class Cnmt(KaitaiStruct):
 
     def _read(self):
         self.header = Cnmt.PackagedContentMetaHeader(self._io, self, self._root)
-        _on = (Cnmt.DummyMetaType.system_update if self._root.header.content_meta_type == Cnmt.ContentMetaType.system_update else (Cnmt.DummyMetaType.application if self._root.header.content_meta_type == Cnmt.ContentMetaType.application else (Cnmt.DummyMetaType.patch if self._root.header.content_meta_type == Cnmt.ContentMetaType.patch else ((Cnmt.DummyMetaType.add_on_content if self._root.header.extended_header_size == 24 else Cnmt.DummyMetaType.add_on_content_legacy) if self._root.header.content_meta_type == Cnmt.ContentMetaType.add_on_content else (Cnmt.DummyMetaType.delta if self._root.header.content_meta_type == Cnmt.ContentMetaType.delta else (Cnmt.DummyMetaType.data_patch if self._root.header.content_meta_type == Cnmt.ContentMetaType.data_patch else Cnmt.DummyMetaType.invalid))))))
-        if _on == Cnmt.DummyMetaType.system_update:
-            self._raw_extended_header = self._io.read_bytes(self._root.header.extended_header_size)
-            _io__raw_extended_header = KaitaiStream(BytesIO(self._raw_extended_header))
-            self.extended_header = Cnmt.SystemUpdateExtendedHeader(_io__raw_extended_header, self, self._root)
-        elif _on == Cnmt.DummyMetaType.patch:
-            self._raw_extended_header = self._io.read_bytes(self._root.header.extended_header_size)
-            _io__raw_extended_header = KaitaiStream(BytesIO(self._raw_extended_header))
-            self.extended_header = Cnmt.PatchExtendedHeader(_io__raw_extended_header, self, self._root)
-        elif _on == Cnmt.DummyMetaType.application:
-            self._raw_extended_header = self._io.read_bytes(self._root.header.extended_header_size)
-            _io__raw_extended_header = KaitaiStream(BytesIO(self._raw_extended_header))
-            self.extended_header = Cnmt.ApplicationExtendedHeader(_io__raw_extended_header, self, self._root)
-        elif _on == Cnmt.DummyMetaType.data_patch:
-            self._raw_extended_header = self._io.read_bytes(self._root.header.extended_header_size)
-            _io__raw_extended_header = KaitaiStream(BytesIO(self._raw_extended_header))
-            self.extended_header = Cnmt.DataPatchExtendedHeader(_io__raw_extended_header, self, self._root)
-        elif _on == Cnmt.DummyMetaType.add_on_content:
-            self._raw_extended_header = self._io.read_bytes(self._root.header.extended_header_size)
-            _io__raw_extended_header = KaitaiStream(BytesIO(self._raw_extended_header))
-            self.extended_header = Cnmt.AocExtendedHeader(_io__raw_extended_header, self, self._root)
-        elif _on == Cnmt.DummyMetaType.delta:
-            self._raw_extended_header = self._io.read_bytes(self._root.header.extended_header_size)
-            _io__raw_extended_header = KaitaiStream(BytesIO(self._raw_extended_header))
-            self.extended_header = Cnmt.DeltaExtendedHeader(_io__raw_extended_header, self, self._root)
-        elif _on == Cnmt.DummyMetaType.add_on_content_legacy:
-            self._raw_extended_header = self._io.read_bytes(self._root.header.extended_header_size)
-            _io__raw_extended_header = KaitaiStream(BytesIO(self._raw_extended_header))
-            self.extended_header = Cnmt.AocLegacyExtendedHeader(_io__raw_extended_header, self, self._root)
-        else:
-            self._raw_extended_header = self._io.read_bytes(self._root.header.extended_header_size)
-            _io__raw_extended_header = KaitaiStream(BytesIO(self._raw_extended_header))
-            self.extended_header = Cnmt.Dummy(_io__raw_extended_header, self, self._root)
+        if self._root.header.extended_header_size > 0:
+            _on = (Cnmt.DummyMetaType.system_update if self._root.header.content_meta_type == Cnmt.ContentMetaType.system_update else (Cnmt.DummyMetaType.application if self._root.header.content_meta_type == Cnmt.ContentMetaType.application else (Cnmt.DummyMetaType.patch if self._root.header.content_meta_type == Cnmt.ContentMetaType.patch else ((Cnmt.DummyMetaType.add_on_content if self._root.header.extended_header_size == 24 else Cnmt.DummyMetaType.add_on_content_legacy) if self._root.header.content_meta_type == Cnmt.ContentMetaType.add_on_content else (Cnmt.DummyMetaType.delta if self._root.header.content_meta_type == Cnmt.ContentMetaType.delta else (Cnmt.DummyMetaType.data_patch if self._root.header.content_meta_type == Cnmt.ContentMetaType.data_patch else Cnmt.DummyMetaType.invalid))))))
+            if _on == Cnmt.DummyMetaType.system_update:
+                self._raw_extended_header = self._io.read_bytes(self._root.header.extended_header_size)
+                _io__raw_extended_header = KaitaiStream(BytesIO(self._raw_extended_header))
+                self.extended_header = Cnmt.SystemUpdateExtendedHeader(_io__raw_extended_header, self, self._root)
+            elif _on == Cnmt.DummyMetaType.patch:
+                self._raw_extended_header = self._io.read_bytes(self._root.header.extended_header_size)
+                _io__raw_extended_header = KaitaiStream(BytesIO(self._raw_extended_header))
+                self.extended_header = Cnmt.PatchExtendedHeader(_io__raw_extended_header, self, self._root)
+            elif _on == Cnmt.DummyMetaType.application:
+                self._raw_extended_header = self._io.read_bytes(self._root.header.extended_header_size)
+                _io__raw_extended_header = KaitaiStream(BytesIO(self._raw_extended_header))
+                self.extended_header = Cnmt.ApplicationExtendedHeader(_io__raw_extended_header, self, self._root)
+            elif _on == Cnmt.DummyMetaType.data_patch:
+                self._raw_extended_header = self._io.read_bytes(self._root.header.extended_header_size)
+                _io__raw_extended_header = KaitaiStream(BytesIO(self._raw_extended_header))
+                self.extended_header = Cnmt.DataPatchExtendedHeader(_io__raw_extended_header, self, self._root)
+            elif _on == Cnmt.DummyMetaType.add_on_content:
+                self._raw_extended_header = self._io.read_bytes(self._root.header.extended_header_size)
+                _io__raw_extended_header = KaitaiStream(BytesIO(self._raw_extended_header))
+                self.extended_header = Cnmt.AocExtendedHeader(_io__raw_extended_header, self, self._root)
+            elif _on == Cnmt.DummyMetaType.delta:
+                self._raw_extended_header = self._io.read_bytes(self._root.header.extended_header_size)
+                _io__raw_extended_header = KaitaiStream(BytesIO(self._raw_extended_header))
+                self.extended_header = Cnmt.DeltaExtendedHeader(_io__raw_extended_header, self, self._root)
+            elif _on == Cnmt.DummyMetaType.add_on_content_legacy:
+                self._raw_extended_header = self._io.read_bytes(self._root.header.extended_header_size)
+                _io__raw_extended_header = KaitaiStream(BytesIO(self._raw_extended_header))
+                self.extended_header = Cnmt.AocLegacyExtendedHeader(_io__raw_extended_header, self, self._root)
+            else:
+                self._raw_extended_header = self._io.read_bytes(self._root.header.extended_header_size)
+                _io__raw_extended_header = KaitaiStream(BytesIO(self._raw_extended_header))
+                self.extended_header = Cnmt.Dummy(_io__raw_extended_header, self, self._root)
+
         self.packaged_content_infos = [None] * (self._root.header.content_count)
         for i in range(self._root.header.content_count):
             self.packaged_content_infos[i] = Cnmt.PackagedContentInfo(self._io, self, self._root)
@@ -114,27 +116,29 @@ class Cnmt(KaitaiStruct):
         for i in range(self._root.header.content_meta_count):
             self.content_meta_infos[i] = Cnmt.ContentMetaInfo(self._io, self, self._root)
 
-        _on = self._root.header.content_meta_type
-        if _on == Cnmt.ContentMetaType.delta:
-            self._raw_extended_data = self._io.read_bytes(self.extended_data_size)
-            _io__raw_extended_data = KaitaiStream(BytesIO(self._raw_extended_data))
-            self.extended_data = Cnmt.DeltaExtendedData(_io__raw_extended_data, self, self._root)
-        elif _on == Cnmt.ContentMetaType.system_update:
-            self._raw_extended_data = self._io.read_bytes(self.extended_data_size)
-            _io__raw_extended_data = KaitaiStream(BytesIO(self._raw_extended_data))
-            self.extended_data = Cnmt.SystemUpdateExtendedData(_io__raw_extended_data, self, self._root)
-        elif _on == Cnmt.ContentMetaType.patch:
-            self._raw_extended_data = self._io.read_bytes(self.extended_data_size)
-            _io__raw_extended_data = KaitaiStream(BytesIO(self._raw_extended_data))
-            self.extended_data = Cnmt.PatchExtendedData(_io__raw_extended_data, self, self._root)
-        elif _on == Cnmt.ContentMetaType.data_patch:
-            self._raw_extended_data = self._io.read_bytes(self.extended_data_size)
-            _io__raw_extended_data = KaitaiStream(BytesIO(self._raw_extended_data))
-            self.extended_data = Cnmt.PatchExtendedData(_io__raw_extended_data, self, self._root)
-        else:
-            self._raw_extended_data = self._io.read_bytes(self.extended_data_size)
-            _io__raw_extended_data = KaitaiStream(BytesIO(self._raw_extended_data))
-            self.extended_data = Cnmt.Dummy(_io__raw_extended_data, self, self._root)
+        if self.extended_data_size > 0:
+            _on = self._root.header.content_meta_type
+            if _on == Cnmt.ContentMetaType.delta:
+                self._raw_extended_data = self._io.read_bytes(self.extended_data_size)
+                _io__raw_extended_data = KaitaiStream(BytesIO(self._raw_extended_data))
+                self.extended_data = Cnmt.DeltaExtendedData(_io__raw_extended_data, self, self._root)
+            elif _on == Cnmt.ContentMetaType.system_update:
+                self._raw_extended_data = self._io.read_bytes(self.extended_data_size)
+                _io__raw_extended_data = KaitaiStream(BytesIO(self._raw_extended_data))
+                self.extended_data = Cnmt.SystemUpdateExtendedData(_io__raw_extended_data, self, self._root)
+            elif _on == Cnmt.ContentMetaType.patch:
+                self._raw_extended_data = self._io.read_bytes(self.extended_data_size)
+                _io__raw_extended_data = KaitaiStream(BytesIO(self._raw_extended_data))
+                self.extended_data = Cnmt.PatchExtendedData(_io__raw_extended_data, self, self._root)
+            elif _on == Cnmt.ContentMetaType.data_patch:
+                self._raw_extended_data = self._io.read_bytes(self.extended_data_size)
+                _io__raw_extended_data = KaitaiStream(BytesIO(self._raw_extended_data))
+                self.extended_data = Cnmt.PatchExtendedData(_io__raw_extended_data, self, self._root)
+            else:
+                self._raw_extended_data = self._io.read_bytes(self.extended_data_size)
+                _io__raw_extended_data = KaitaiStream(BytesIO(self._raw_extended_data))
+                self.extended_data = Cnmt.Dummy(_io__raw_extended_data, self, self._root)
+
         self.digest = self._io.read_bytes(32)
 
     class PatchHistoryHeader(KaitaiStruct):
@@ -501,8 +505,8 @@ class Cnmt(KaitaiStruct):
             self._read()
 
         def _read(self):
-            self.private_ver = self._io.read_u2le()
-            self.release_ver = self._io.read_u2le()
+            self.private_ver = self._io.read_bits_int_le(16)
+            self.release_ver = self._io.read_bits_int_le(16)
 
         @property
         def raw_version(self):
@@ -692,7 +696,9 @@ class Cnmt(KaitaiStruct):
         if hasattr(self, '_m_extended_data_size'):
             return self._m_extended_data_size if hasattr(self, '_m_extended_data_size') else None
 
-        self._m_extended_data_size = (self.extended_header.extended_data_size if self._root.header.content_meta_type == Cnmt.ContentMetaType.system_update else (self.extended_header.extended_data_size if self._root.header.content_meta_type == Cnmt.ContentMetaType.patch else (self.extended_header.extended_data_size if self._root.header.content_meta_type == Cnmt.ContentMetaType.delta else (self.extended_header.extended_data_size if self._root.header.content_meta_type == Cnmt.ContentMetaType.data_patch else 0))))
+        if self._root.header.extended_header_size > 0:
+            self._m_extended_data_size = (self.extended_header.extended_data_size if self._root.header.content_meta_type == Cnmt.ContentMetaType.system_update else (self.extended_header.extended_data_size if self._root.header.content_meta_type == Cnmt.ContentMetaType.patch else (self.extended_header.extended_data_size if self._root.header.content_meta_type == Cnmt.ContentMetaType.delta else (self.extended_header.extended_data_size if self._root.header.content_meta_type == Cnmt.ContentMetaType.data_patch else 0))))
+
         return self._m_extended_data_size if hasattr(self, '_m_extended_data_size') else None
 
 
