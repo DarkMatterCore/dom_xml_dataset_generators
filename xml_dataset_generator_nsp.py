@@ -675,9 +675,9 @@ def utilsGenerateXmlDataset(args: argparse.Namespace, nsp_list: List) -> None:
                 # Generate dev status string.
                 dev_status = ''
                 if control['demo']: dev_status += 'Demo'
-                if (title['title_type'] == 'patch') or (title['title_type'] == 'add_on_content'):
+                if (title['title_type'] == 'patch') or (title['title_type'] == 'add_on_content') or (title['title_type'] == 'data_patch'):
                     if dev_status: dev_status += ','
-                    dev_status += ('Update' if (title['title_type'] == 'patch') else 'DLC')
+                    dev_status += ('Update' if (title['title_type'] == 'patch') else ('DLC' if (title['title_type'] == 'add_on_content') else 'DLC Update'))
 
                 # Generate XML entry.
                 title_str  = '  <game name="">\n'
