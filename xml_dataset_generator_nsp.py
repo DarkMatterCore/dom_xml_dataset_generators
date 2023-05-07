@@ -422,14 +422,19 @@ def utilsBuildNspTitleList(ext_nsp_dir: str, hactool: str, hactoolnet: str, keys
 
             print('(Thread ' + thrd_id + ') Parsing %s NCA: "%s".' % (utilsCapitalizeString(content_type, ' '), content_filename), flush=True)
 
-            # Check if this NCA actually exists.
+            # Check if this NCA actually exists. Don't proceed any further with the current title if this NCA isn't available.
+            # We don't really care about missing DeltaFragment NCAs, though.
             if not os.path.exists(content_path):
                 eprint('(Thread ' + thrd_id + ') Error: file "%s" not found. Skipping NCA.' % (content_path))
-                continue
+                if content_type == 'delta_fragment': continue
+                success = False
+                break
 
             # Retrieve NCA information using hactoolnet.
             nca_info = utilsGetNcaInfo(thrd_id, hactoolnet, keys, content_path, (tmp_titlekeys_path if rights_id != '' else ''))
-            if not nca_info: continue
+            if not nca_info:
+                success = False
+                break
 
             # Check if we're missing the titlekey.
             titlekey_needed = ((nca_info['crypto_type'] == 'titlekey') and nca_info['rights_id'] and (not rights_id))
@@ -460,11 +465,15 @@ def utilsBuildNspTitleList(ext_nsp_dir: str, hactool: str, hactoolnet: str, keys
                 # Parse NCA once more, if needed.
                 if not nca_info['verify']:
                     nca_info = utilsGetNcaInfo(thrd_id, hactoolnet, keys, content_path, tmp_titlekeys_path)
-                    if not nca_info: continue
+                    if not nca_info:
+                        success = False
+                        break
 
                 # Get decrypted titlekey using plain old hactool.
                 dec_titlekey['value'] = utilsGetDecryptedTitlekey(thrd_id, hactool, keys, content_path, enc_titlekey['value'])
-                if not dec_titlekey['value']: continue
+                if not dec_titlekey['value']:
+                    success = False
+                    break
 
                 # Calculate ticket checksums.
                 ticket = utilsCalculateFileChecksums(tik_path)
@@ -487,7 +496,8 @@ def utilsBuildNspTitleList(ext_nsp_dir: str, hactool: str, hactoolnet: str, keys
             # Verify content ID.
             if (packaged_content_info.info.id != packaged_content_info.hash[:16]) or (packaged_content_info.info.id.hex().lower() != nca_info['sha256'][:32]):
                 eprint('(Thread ' + thrd_id + ') Error: content ID / hash mismatch.')
-                continue
+                success = False
+                break
 
             # Replace NCA info's content type with the type stored in the CNMT, because it's more descriptive.
             nca_info['cnt_type'] = content_type
