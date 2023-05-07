@@ -675,7 +675,7 @@ def utilsGenerateXmlDataset(args: argparse.Namespace, nsp_list: List) -> None:
 
     release_date_provided = (len(args.release_date) > 0)
 
-    comment2_str = (DEFAULT_COMMENT2 if args.include_comment else '').replace('&', HTML_AMPERSAND)
+    comment2_str = ('' if args.exclude_comment else DEFAULT_COMMENT2).replace('&', HTML_AMPERSAND)
 
     # Open output XML file.
     xml_path = os.path.join(args.outdir, OUTPUT_XML_NAME)
@@ -845,7 +845,7 @@ def main() -> int:
     parser.add_argument('--project', type=str, default=DEFAULT_PROJECT, help='Project string used in the output XML dataset. Defaults to "' + DEFAULT_PROJECT + '" if not provided.')
     parser.add_argument('--tool', type=str, default=DEFAULT_TOOL, help='Tool string used in the output XML dataset. Defaults to "' + DEFAULT_TOOL + '" if not provided.')
     parser.add_argument('--region', type=str, default=DEFAULT_REGION, help='Region string used in the output XML dataset. Defaults to "' + DEFAULT_REGION + '" if not provided.')
-    parser.add_argument('--include-comment', action='store_true', default=False, help='Sets the comment2 value to a string that holds information about this script. Disabled by default.')
+    parser.add_argument('--exclude-comment', action='store_true', default=False, help='Excludes information about this script from the comment2 field in XML entries. Disabled by default (comment2 fields hold information about this script).')
     parser.add_argument('--keep-folders', action='store_true', default=False, help='Keeps extracted NSP folders in the provided output directory. Disabled by default (all extracted folders are removed).')
     parser.add_argument('--num-threads', type=utilsValidateThreadCount, metavar='VALUE', default=1, help='Sets the number of threads used to process input NSP/NSZ files. Defaults to 1 if not provided. Must not exceed ' + str(MAX_CPU_THREAD_COUNT) + '.')
 
