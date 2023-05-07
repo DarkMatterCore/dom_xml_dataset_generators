@@ -36,7 +36,6 @@ from cnmt import Cnmt
 from tik import Tik
 from nacp import Nacp
 import datetime
-import glob
 import threading
 import psutil
 import time
@@ -53,18 +52,22 @@ INITIAL_DIR: str = (CWD if CWD != SCRIPT_DIR else SCRIPT_DIR)
 
 MAX_CPU_THREAD_COUNT: int = psutil.cpu_count()
 
-NSP_PATH:     str = os.path.join('.', 'nsp')
-HACTOOL_PATH: str = os.path.join('.', ('hactool.exe' if os.name == 'nt' else 'hactool'))
-KEYS_PATH:    str = os.path.join('~', '.switch', 'prod.keys')
-OUTPUT_PATH:  str = os.path.join('.', 'out')
+NSP_PATH:        str = os.path.join('.', 'nsp')
+HACTOOL_PATH:    str = os.path.join('.', ('hactool.exe' if os.name == 'nt' else 'hactool'))
+HACTOOLNET_PATH: str = os.path.join('.', ('hactoolnet.exe' if os.name == 'nt' else 'hactoolnet'))
+KEYS_PATH:       str = os.path.join('~', '.switch', 'prod.keys')
+OUTPUT_PATH:     str = os.path.join('.', 'out')
 
-HACTOOL_DISTRIBUTION_TYPE_REGEX  = re.compile(r"^Distribution type:\s+(.+)$", flags=(re.MULTILINE | re.IGNORECASE))
-HACTOOL_CONTENT_TYPE_REGEX       = re.compile(r"^Content Type:\s+(.+)$", flags=(re.MULTILINE | re.IGNORECASE))
-HACTOOL_ENCRYPTION_TYPE_REGEX    = re.compile(r"^Encryption Type:\s+(.+)$", flags=(re.MULTILINE | re.IGNORECASE))
-HACTOOL_RIGHTS_ID_REGEX          = re.compile(r"^Rights ID:\s+([0-9a-f]{32})$", flags=(re.MULTILINE | re.IGNORECASE))
-HACTOOL_DECRYPTED_TITLEKEY_REGEX = re.compile(r"^Titlekey \(Decrypted\)(?: \(From CLI\))?\s+([0-9a-f]{32})$", flags=(re.MULTILINE | re.IGNORECASE))
-HACTOOL_VERIFY_REGEX             = re.compile(r"\(FAIL\)", flags=(re.MULTILINE | re.IGNORECASE))
-HACTOOL_SAVING_REGEX             = re.compile(r"^Saving (.+) to", flags=(re.MULTILINE | re.IGNORECASE))
+HACTOOLNET_DISTRIBUTION_TYPE_REGEX  = re.compile(r"^Distribution type:\s+(.+)$", flags=(re.MULTILINE | re.IGNORECASE))
+HACTOOLNET_CONTENT_TYPE_REGEX       = re.compile(r"^Content Type:\s+(.+)$", flags=(re.MULTILINE | re.IGNORECASE))
+HACTOOLNET_ENCRYPTION_TYPE_REGEX    = re.compile(r"^Encryption Type:\s+(.+)$", flags=(re.MULTILINE | re.IGNORECASE))
+HACTOOLNET_RIGHTS_ID_REGEX          = re.compile(r"^Rights ID:\s+([0-9a-f]{32})$", flags=(re.MULTILINE | re.IGNORECASE))
+HACTOOLNET_VERIFY_REGEX             = re.compile(r"\(FAIL\)", flags=(re.MULTILINE | re.IGNORECASE))
+HACTOOLNET_SAVING_REGEX             = re.compile(r"^section\d+:/(.+\.cnmt)$", flags=(re.MULTILINE | re.IGNORECASE))
+HACTOOLNET_MISSING_TITLEKEY_REGEX   = re.compile(r"Missing NCA title key", flags=(re.MULTILINE | re.IGNORECASE))
+HACTOOLNET_ALT_RIGHTS_ID_REGEX      = re.compile(r"Title key for rights ID ([0-9a-f]{32})$", flags=(re.MULTILINE | re.IGNORECASE))
+
+HACTOOL_DECRYPTED_TITLEKEY_REGEX    = re.compile(r"^Titlekey \(Decrypted\)(?: \(From CLI\))?\s+([0-9a-f]{32})$", flags=(re.MULTILINE | re.IGNORECASE))
 
 NCA_DISTRIBUTION_TYPE: str = 'download'
 
@@ -163,23 +166,23 @@ def utilsGetGitInfo() -> None:
     DEFAULT_COMMENT2 = '[%s revision %s used to generate XML files]' % (SCRIPT_NAME, GIT_REV)
     if comment2_str: DEFAULT_COMMENT2 += '%s%s' % (HTML_LINE_BREAK, comment2_str)
 
-def utilsRunHactool(hactool: str, keys: str, type: str, args: List[str]) -> subprocess.CompletedProcess:
-    hactool_args = [hactool, '-t', type, '-k', keys, '--disablekeywarns'] + args
-    proc = subprocess.run(hactool_args, capture_output=True, encoding='utf-8')
+def utilsRunHactoolnet(hactoolnet: str, keys: str, type: str, args: List[str]) -> subprocess.CompletedProcess:
+    hactoolnet_args = [hactoolnet, '-t', type, '-k', keys, '--disablekeywarns'] + args
+    proc = subprocess.run(hactoolnet_args, capture_output=True, encoding='utf-8')
     return proc
 
-def utilsExtractNsp(nsp_path: str, hactool: str, keys: str, outdir: str) -> bool:
+def utilsExtractNsp(nsp_path: str, hactoolnet: str, keys: str, outdir: str) -> bool:
     # Extract files from the provided NSP.
-    proc = utilsRunHactool(hactool, keys, 'pfs0', ['--outdir=' + outdir, nsp_path])
+    proc = utilsRunHactoolnet(hactoolnet, keys, 'pfs0', ['--outdir', outdir, nsp_path])
     return (proc.stdout and (proc.returncode == 0) and os.path.exists(outdir))
 
-def utilsExtractCnmtNca(nca_path: str, hactool: str, keys: str, outdir: str) -> str:
+def utilsExtractCnmtNca(nca_path: str, hactoolnet: str, keys: str, outdir: str) -> str:
     # Extract files from NCA FS section 0.
-    proc = utilsRunHactool(hactool, keys, 'nca', ['--section0dir=' + outdir, nca_path])
+    proc = utilsRunHactoolnet(hactoolnet, keys, 'nca', ['--section0dir', outdir, nca_path])
     if (not proc.stdout) or (proc.returncode != 0) or (not os.path.exists(outdir)): return ''
 
-    # Get extracted CNMT filename from hactool's output.
-    cnmt_filename = re.search(HACTOOL_SAVING_REGEX, proc.stdout)
+    # Get extracted CNMT filename from hactoolnet's output.
+    cnmt_filename = re.search(HACTOOLNET_SAVING_REGEX, proc.stdout)
     if (not cnmt_filename): return ''
 
     cnmt_filename = cnmt_filename.group(1).strip()
@@ -187,10 +190,10 @@ def utilsExtractCnmtNca(nca_path: str, hactool: str, keys: str, outdir: str) -> 
 
     return cnmt_filename
 
-def utilsExtractNcaFsSection(nca_path: str, hactool: str, keys: str, outdir: str, idx: int) -> bool:
+def utilsExtractNcaFsSection(nca_path: str, hactoolnet: str, keys: str, outdir: str, idx: int) -> bool:
     # Extract files from the selected NCA FS section.
     if (idx < 0) or (idx > 3): return False
-    proc = utilsRunHactool(hactool, keys, 'nca', ['--section' + str(idx) + 'dir=' + outdir, nca_path])
+    proc = utilsRunHactoolnet(hactoolnet, keys, 'nca', ['--section' + str(idx) + 'dir', outdir, nca_path])
     return (proc.stdout and (proc.returncode == 0) and os.path.exists(outdir))
 
 def utilsConvertNszToNsp(outdir: str, nsz_path: str) -> List:
@@ -205,8 +208,22 @@ def utilsConvertNszToNsp(outdir: str, nsz_path: str) -> List:
     return [nsp_path, nsp_size]
 
 def utilsCopyKeysFile(keys: str) -> None:
-    hactool_keys_path = os.path.abspath(os.path.expanduser(os.path.expandvars(KEYS_PATH)))
-    if keys != hactool_keys_path: shutil.copyfile(keys, hactool_keys_path)
+    hactoolnet_keys_path = os.path.abspath(os.path.expanduser(os.path.expandvars(KEYS_PATH)))
+    if keys != hactoolnet_keys_path: shutil.copyfile(keys, hactoolnet_keys_path)
+
+def utilsGetDecryptedTitlekey(thrd_id: str, hactool: str, keys: str, nca_path: str, enc_titlekey: str) -> str:
+    # We'll actually use old hactool here.
+    proc = utilsRunHactoolnet(hactool, keys, 'nca', [ '--titlekey=' + enc_titlekey, nca_path ])
+    if not proc.stdout or proc.returncode != 0:
+        msg = '(Thread ' + thrd_id + ') Failed to get decrypted titlekey'
+        hactool_stderr = proc.stderr.strip()
+        if hactool_stderr: msg += ' (%s)' % (hactool_stderr)
+        eprint(msg + '.')
+        return ''
+
+    dec_titlekey = re.search(HACTOOL_DECRYPTED_TITLEKEY_REGEX, proc.stdout)
+    dec_titlekey = (dec_titlekey.group(1).lower() if dec_titlekey else '')
+    return dec_titlekey
 
 def utilsGetFileList(dir: str, recursive: bool = False) -> List:
     file_list: List = []
@@ -260,30 +277,40 @@ def utilsCalculateFileChecksums(file: str) -> Dict:
 
     return checksums
 
-def utilsGetNcaInfo(thrd_id: str, hactool: str, keys: str, nca_path: str, titlekey: str = '', expected_cnt_type: str = '') -> Dict:
-    # Run hactool.
+def utilsGetNcaInfo(thrd_id: str, hactoolnet: str, keys: str, nca_path: str, tmp_titlekeys_path: str = '', expected_cnt_type: str = '') -> Dict:
+    # Run hactoolnet.
     args = []
-    if titlekey: args.append('--titlekey=' + titlekey)
+    if tmp_titlekeys_path: args.extend([ '--titlekeys', tmp_titlekeys_path ])
     args.extend([ '-y', nca_path ])
 
-    proc = utilsRunHactool(hactool, keys, 'nca', args)
+    proc = utilsRunHactoolnet(hactoolnet, keys, 'nca', args)
     if not proc.stdout or proc.returncode != 0:
-        msg = '(Thread ' + thrd_id + ') Failed to retrieve NCA info'
-        hactool_stderr = proc.stderr.strip()
-        if hactool_stderr: msg += ' (%s)' % (hactool_stderr)
-        eprint(msg + '.')
-        return {}
+        # Check if we're dealing with a missing titlekey error.
+        if (not tmp_titlekeys_path) and proc.stderr and re.search(HACTOOLNET_MISSING_TITLEKEY_REGEX, proc.stderr):
+            # Return prematurely, but provide titlekey crypto info to the caller.
+            rights_id = re.search(HACTOOLNET_ALT_RIGHTS_ID_REGEX, proc.stderr)
+            rights_id = (rights_id.group(1).lower() if rights_id else '')
+            return {
+                'crypto_type': 'titlekey',
+                'rights_id': rights_id,
+                'verify': False
+            }
+        else:
+            msg = '(Thread ' + thrd_id + ') Failed to retrieve NCA info'
+            hactoolnet_stderr = proc.stderr.strip()
+            if hactoolnet_stderr: msg += ' (%s)' % (hactoolnet_stderr)
+            eprint(msg + '.')
+            return {}
 
-    # Parse hactool's output.
-    dist_type = re.search(HACTOOL_DISTRIBUTION_TYPE_REGEX, proc.stdout)
-    cnt_type = re.search(HACTOOL_CONTENT_TYPE_REGEX, proc.stdout)
-    crypto_type = re.search(HACTOOL_ENCRYPTION_TYPE_REGEX, proc.stdout)
-    rights_id = re.search(HACTOOL_RIGHTS_ID_REGEX, proc.stdout)
-    dec_titlekey = re.search(HACTOOL_DECRYPTED_TITLEKEY_REGEX, proc.stdout)
-    verify = (len(re.findall(HACTOOL_VERIFY_REGEX, proc.stdout)) == 0)
+    # Parse hactoolnet's output.
+    dist_type = re.search(HACTOOLNET_DISTRIBUTION_TYPE_REGEX, proc.stdout)
+    cnt_type = re.search(HACTOOLNET_CONTENT_TYPE_REGEX, proc.stdout)
+    crypto_type = re.search(HACTOOLNET_ENCRYPTION_TYPE_REGEX, proc.stdout)
+    rights_id = re.search(HACTOOLNET_RIGHTS_ID_REGEX, proc.stdout)
+    verify = (len(re.findall(HACTOOLNET_VERIFY_REGEX, proc.stdout)) == 0)
 
     if (not dist_type) or (not cnt_type) or (not crypto_type):
-        eprint('(Thread ' + thrd_id + ') Failed to parse hactool\'s output.')
+        eprint('(Thread ' + thrd_id + ') Failed to parse hactoolnet\'s output.')
         return {}
 
     dist_type = dist_type.group(1).lower()
@@ -291,11 +318,10 @@ def utilsGetNcaInfo(thrd_id: str, hactool: str, keys: str, nca_path: str, titlek
     crypto_type = crypto_type.group(1).lower().split()[0]
 
     if (crypto_type == 'titlekey') and (not rights_id):
-        eprint('(Thread ' + thrd_id + ') Failed to parse Rights ID from hactool\'s output.')
+        eprint('(Thread ' + thrd_id + ') Failed to parse Rights ID from hactoolnet\'s output.')
         return {}
 
     rights_id = (rights_id.group(1).lower() if rights_id else '')
-    dec_titlekey = (dec_titlekey.group(1).lower() if dec_titlekey else '')
 
     if dist_type != 'download':
         eprint('(Thread ' + thrd_id + ') Invalid distribution type (got "%s", expected "%s").' % (dist_type, NCA_DISTRIBUTION_TYPE))
@@ -306,7 +332,7 @@ def utilsGetNcaInfo(thrd_id: str, hactool: str, keys: str, nca_path: str, titlek
         eprint('(Thread ' + thrd_id + ') Invalid content type (got "%s", expected "%s").' % (cnt_type, expected_cnt_type))
         return {}
 
-    if (not verify) and ((crypto_type != 'titlekey') or titlekey):
+    if (not verify) and ((crypto_type != 'titlekey') or tmp_titlekeys_path):
         eprint('(Thread ' + thrd_id + ') Signature/hash verification failed.')
         return {}
 
@@ -316,7 +342,6 @@ def utilsGetNcaInfo(thrd_id: str, hactool: str, keys: str, nca_path: str, titlek
         'cnt_type': cnt_type,
         'crypto_type': crypto_type,
         'rights_id': rights_id,
-        'dec_titlekey': dec_titlekey,
         'verify': verify
     }
 
@@ -330,7 +355,7 @@ def utilsGetNcaInfo(thrd_id: str, hactool: str, keys: str, nca_path: str, titlek
 
     return nca_info
 
-def utilsBuildNspTitleList(ext_nsp_dir: str, hactool: str, keys: str, thrd_id: str) -> List:
+def utilsBuildNspTitleList(ext_nsp_dir: str, hactool: str, hactoolnet: str, keys: str, thrd_id: str, tmp_titlekeys_path: str) -> List:
     # Empty dictionary, used to hold the NSP title list.
     titles = []
     nca_info = {}
@@ -369,15 +394,15 @@ def utilsBuildNspTitleList(ext_nsp_dir: str, hactool: str, keys: str, thrd_id: s
 
         print('(Thread ' + thrd_id + ') Parsing Meta NCA: "%s".' % (os.path.basename(entry.path)), flush=True)
 
-        # Retrieve CNMT NCA information using hactool.
-        nca_info = utilsGetNcaInfo(thrd_id, hactool, keys, entry.path, enc_titlekey['value'], 'meta')
+        # Retrieve CNMT NCA information using hactoolnet.
+        nca_info = utilsGetNcaInfo(thrd_id, hactoolnet, keys, entry.path, '', 'meta')
         if not nca_info: continue
 
         # Append NCA info.
         contents.append(nca_info)
 
         # Extract CNMT file from NCA.
-        cnmt_filename = utilsExtractCnmtNca(entry.path, hactool, keys, ext_nsp_dir)
+        cnmt_filename = utilsExtractCnmtNca(entry.path, hactoolnet, keys, ext_nsp_dir)
         if not cnmt_filename:
             eprint('(Thread ' + thrd_id + ') Error: failed to extract Meta NCA. Skipping current title.')
             continue
@@ -397,8 +422,13 @@ def utilsBuildNspTitleList(ext_nsp_dir: str, hactool: str, keys: str, thrd_id: s
 
             print('(Thread ' + thrd_id + ') Parsing %s NCA: "%s".' % (utilsCapitalizeString(content_type, ' '), content_filename), flush=True)
 
-            # Retrieve NCA information using hactool.
-            nca_info = utilsGetNcaInfo(thrd_id, hactool, keys, content_path, enc_titlekey['value'])
+            # Check if this NCA actually exists.
+            if not os.path.exists(content_path):
+                eprint('(Thread ' + thrd_id + ') Error: file "%s" not found. Skipping NCA.' % (content_path))
+                continue
+
+            # Retrieve NCA information using hactoolnet.
+            nca_info = utilsGetNcaInfo(thrd_id, hactoolnet, keys, content_path, (tmp_titlekeys_path if rights_id != '' else ''))
             if not nca_info: continue
 
             # Check if we're missing the titlekey.
@@ -423,13 +453,18 @@ def utilsBuildNspTitleList(ext_nsp_dir: str, hactool: str, keys: str, thrd_id: s
                 # Close ticket.
                 tik.close()
 
+                # Update titlekeys file.
+                with open(tmp_titlekeys_path, 'a', encoding='utf-8') as tk_fd:
+                    tk_fd.write('%s = %s\n' % (rights_id.lower(), enc_titlekey['value']))
+
                 # Parse NCA once more, if needed.
                 if not nca_info['verify']:
-                    nca_info = utilsGetNcaInfo(thrd_id, hactool, keys, content_path, enc_titlekey['value'])
+                    nca_info = utilsGetNcaInfo(thrd_id, hactoolnet, keys, content_path, tmp_titlekeys_path)
                     if not nca_info: continue
 
-                # Set decrypted titlekey.
-                dec_titlekey['value'] = nca_info['dec_titlekey']
+                # Get decrypted titlekey using plain old hactool.
+                dec_titlekey['value'] = utilsGetDecryptedTitlekey(thrd_id, hactool, keys, content_path, enc_titlekey['value'])
+                if not dec_titlekey['value']: continue
 
                 # Calculate ticket checksums.
                 ticket = utilsCalculateFileChecksums(tik_path)
@@ -449,10 +484,6 @@ def utilsBuildNspTitleList(ext_nsp_dir: str, hactool: str, keys: str, thrd_id: s
                 dec_titlekey = dec_titlekey | utilsCalculateFileChecksums(dec_titlekey_path)
                 dec_titlekey.update({ 'filename': dec_titlekey_filename })
 
-                # Remove cert file.
-                cert_path = os.path.join(ext_nsp_dir, rights_id + '.cert')
-                if os.path.exists(cert_path): os.remove(cert_path)
-
             # Verify content ID.
             if (packaged_content_info.info.id != packaged_content_info.hash[:16]) or (packaged_content_info.info.id.hex().lower() != nca_info['sha256'][:32]):
                 eprint('(Thread ' + thrd_id + ') Error: content ID / hash mismatch.')
@@ -467,7 +498,7 @@ def utilsBuildNspTitleList(ext_nsp_dir: str, hactool: str, keys: str, thrd_id: s
             # Check if we're dealing with the first control NCA.
             if (packaged_content_info.info.type == Cnmt.ContentType.control) and (packaged_content_info.info.id_offset == 0):
                 # Extract control NCA.
-                if utilsExtractNcaFsSection(content_path, hactool, keys, ext_nsp_dir, 0):
+                if utilsExtractNcaFsSection(content_path, hactoolnet, keys, ext_nsp_dir, 0):
                     # Parse NACP file.
                     nacp_path = os.path.join(ext_nsp_dir, 'control.nacp')
                     nacp = Nacp.from_file(nacp_path)
@@ -493,13 +524,8 @@ def utilsBuildNspTitleList(ext_nsp_dir: str, hactool: str, keys: str, thrd_id: s
                     control['display_version'] = nacp.display_version.replace('&', HTML_AMPERSAND)
                     control['demo'] = nacp.attribute.demo
 
-                    # Close and delete NACP.
+                    # Close NACP.
                     nacp.close()
-                    os.remove(nacp_path)
-
-                    # Delete DAT files.
-                    dat_list = glob.glob(os.path.join(ext_nsp_dir, '*.dat'))
-                    for dat in dat_list: os.remove(dat)
                 else:
                     eprint('(Thread ' + thrd_id + ') Error: failed to extract Control NCA.')
 
@@ -519,16 +545,15 @@ def utilsBuildNspTitleList(ext_nsp_dir: str, hactool: str, keys: str, thrd_id: s
                 'contents': contents
             })
 
-        # Close and delete CNMT.
+        # Close CNMT.
         cnmt.close()
-        os.remove(cnmt_path)
 
     # Close directory scan.
     dir_scan.close()
 
     return titles
 
-def utilsProcessNspFile(args: argparse.Namespace, thrd_id: str, nsp: List) -> Dict:
+def utilsProcessNspFile(args: argparse.Namespace, thrd_id: str, nsp: List, tmp_titlekeys_path: str) -> Dict:
     nsp_info: Dict = {}
     nsp_path, nsp_size = nsp
     orig_nsp_path = nsp_path
@@ -563,23 +588,12 @@ def utilsProcessNspFile(args: argparse.Namespace, thrd_id: str, nsp: List) -> Di
 
     # Extract NSP.
     ext_nsp_dir = os.path.join(args.outdir, GIT_REV + '_' + utilsGetRandomString(8) + '_' + thrd_id)
-    if not utilsExtractNsp(nsp_path, args.hactool, args.keys, ext_nsp_dir):
+    if not utilsExtractNsp(nsp_path, args.hactoolnet, args.keys, ext_nsp_dir):
         eprint('(Thread ' + thrd_id + ') Error: failed to extract NSP.')
         return {}
 
-    # Delete XML files.
-    xml_list = glob.glob(os.path.join(ext_nsp_dir, '*.xml'))
-    for xml in xml_list: os.remove(xml)
-
-    # Delete JPEG files.
-    jpg_list = glob.glob(os.path.join(ext_nsp_dir, '*.jpg'))
-    for jpg in jpg_list: os.remove(jpg)
-
-    jpg_list = glob.glob(os.path.join(ext_nsp_dir, '*.jpeg'))
-    for jpg in jpg_list: os.remove(jpg)
-
     # Build NSP title list from extracted files.
-    nsp_title_list = utilsBuildNspTitleList(ext_nsp_dir, args.hactool, args.keys, thrd_id)
+    nsp_title_list = utilsBuildNspTitleList(ext_nsp_dir, args.hactool, args.hactoolnet, args.keys, thrd_id, tmp_titlekeys_path)
 
     if nsp_title_list and args.keep_folders:
         # Rename extracted NSP directory.
@@ -614,15 +628,21 @@ def utilsProcessNspList(args: argparse.Namespace, file_list_chunks: List, result
     thrd_file_list = file_list_chunks[thrd_id]
     results[thrd_id] = []
 
+    # Generate filename for temporary titlekeys file.
+    tmp_titlekeys_path = os.path.join(args.outdir, GIT_REV + '_' + utilsGetRandomString(8) + '_' + str(thrd_id) + '_title.keys')
+
     # Process NSP files.
     for nsp in thrd_file_list:
         print('(Thread %d) Processing "%s"...' % (thrd_id, os.path.basename(nsp[0])), flush=True)
 
-        nsp_info = utilsProcessNspFile(args, str(thrd_id), nsp)
+        nsp_info = utilsProcessNspFile(args, str(thrd_id), nsp, tmp_titlekeys_path)
         if not nsp_info: continue
 
         # Update output list.
         results[thrd_id].append(nsp_info)
+
+    # Remove temporary titlekeys file.
+    if os.path.exists(tmp_titlekeys_path): os.remove(tmp_titlekeys_path)
 
 def utilsGetListChunks(lst: List, n: int) -> Generator:
     for i in range(0, n):
@@ -792,6 +812,7 @@ def main() -> int:
     parser = argparse.ArgumentParser(description='Generate a XML dataset from Nintendo Submission Package (NSP) files.')
     parser.add_argument('--nspdir', type=str, metavar='DIR', help='Path to directory with NSP files. Defaults to "' + NSP_PATH + '".')
     parser.add_argument('--hactool', type=str, metavar='FILE', help='Path to hactool binary. Defaults to "' + HACTOOL_PATH + '".')
+    parser.add_argument('--hactoolnet', type=str, metavar='FILE', help='Path to hactoolnet binary. Defaults to "' + HACTOOLNET_PATH + '".')
     parser.add_argument('--keys', type=str, metavar='FILE', help='Path to Nintendo Switch keys file. Defaults to "' + KEYS_PATH + '".')
     parser.add_argument('--outdir', type=str, metavar='DIR', help='Path to output directory. Defaults to "' + OUTPUT_PATH + '".')
     parser.add_argument('--exclude-nsp', action='store_true', default=False, help='Excludes NSP metadata from the output XML dataset. Disabled by default.')
@@ -813,6 +834,7 @@ def main() -> int:
     args = parser.parse_args()
     args.nspdir = utilsGetPath(args.nspdir, os.path.join(INITIAL_DIR, NSP_PATH), False)
     args.hactool = utilsGetPath(args.hactool, os.path.join(INITIAL_DIR, HACTOOL_PATH), True)
+    args.hactoolnet = utilsGetPath(args.hactoolnet, os.path.join(INITIAL_DIR, HACTOOLNET_PATH), True)
     args.keys = utilsGetPath(args.keys, KEYS_PATH, True)
     args.outdir = utilsGetPath(args.outdir, os.path.join(INITIAL_DIR, OUTPUT_PATH), False, True)
     args.section = args.section.replace('&', HTML_AMPERSAND)
