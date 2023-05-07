@@ -36,6 +36,7 @@ from cnmt import Cnmt
 from tik import Tik
 from nacp import Nacp
 import datetime
+import glob
 import threading
 import psutil
 import time
@@ -534,8 +535,13 @@ def utilsBuildNspTitleList(ext_nsp_dir: str, hactool: str, hactoolnet: str, keys
                     control['display_version'] = nacp.display_version.replace('&', HTML_AMPERSAND)
                     control['demo'] = nacp.attribute.demo
 
-                    # Close NACP.
+                    # Close and delete NACP.
                     nacp.close()
+                    os.remove(nacp_path)
+
+                    # Delete DAT files.
+                    dat_list = glob.glob(os.path.join(ext_nsp_dir, '*.dat'))
+                    for dat in dat_list: os.remove(dat)
                 else:
                     eprint('(Thread ' + thrd_id + ') Error: failed to extract Control NCA.')
 
@@ -555,8 +561,9 @@ def utilsBuildNspTitleList(ext_nsp_dir: str, hactool: str, hactoolnet: str, keys
                 'contents': contents
             })
 
-        # Close CNMT.
+        # Close and delete CNMT.
         cnmt.close()
+        os.remove(cnmt_path)
 
     # Close directory scan.
     dir_scan.close()
@@ -601,6 +608,10 @@ def utilsProcessNspFile(args: argparse.Namespace, thrd_id: str, nsp: List, tmp_t
     if not utilsExtractNsp(nsp_path, args.hactoolnet, args.keys, ext_nsp_dir):
         eprint('(Thread ' + thrd_id + ') Error: failed to extract NSP.')
         return {}
+
+    # Delete unnecessary files.
+    files_to_delete = [fn for fn in glob.glob(os.path.join(ext_nsp_dir, '*')) if ((not os.path.basename(fn).lower().endswith('.nca')) and (not os.path.basename(fn).lower().endswith('.tik')))]
+    for fn in files_to_delete: os.remove(fn)
 
     # Build NSP title list from extracted files.
     nsp_title_list = utilsBuildNspTitleList(ext_nsp_dir, args.hactool, args.hactoolnet, args.keys, thrd_id, tmp_titlekeys_path)
