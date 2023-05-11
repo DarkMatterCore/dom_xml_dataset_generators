@@ -40,6 +40,7 @@ import glob
 import threading
 import psutil
 import time
+from html import escape as html_escape
 
 import argparse
 from typing import Generator, List, Union, Tuple, Dict, Pattern, TYPE_CHECKING
@@ -59,6 +60,7 @@ HACTOOLNET_PATH: str = os.path.join('.', ('hactoolnet.exe' if os.name == 'nt' el
 KEYS_PATH:       str = os.path.join('~', '.switch', 'prod.keys')
 OUTPUT_PATH:     str = os.path.join('.', 'out')
 
+HACTOOLNET_VERSION_REGEX            = re.compile(r"^hactoolnet (\d+\.\d+.\d+)$", flags=(re.MULTILINE | re.IGNORECASE))
 HACTOOLNET_DISTRIBUTION_TYPE_REGEX  = re.compile(r"^Distribution type:\s+(.+)$", flags=(re.MULTILINE | re.IGNORECASE))
 HACTOOLNET_CONTENT_TYPE_REGEX       = re.compile(r"^Content Type:\s+(.+)$", flags=(re.MULTILINE | re.IGNORECASE))
 HACTOOLNET_ENCRYPTION_TYPE_REGEX    = re.compile(r"^Encryption Type:\s+(.+)$", flags=(re.MULTILINE | re.IGNORECASE))
@@ -102,7 +104,6 @@ XML_HEADER +=     '  </header>\n'
 XML_FOOTER: str = '</datafile>\n'
 
 HTML_LINE_BREAK:  str = '&#xA;'
-HTML_AMPERSAND:   str = '&amp;'
 
 DEFAULT_DUMPER:   str = '!unknown'
 DEFAULT_PROJECT:  str = '!unknown'
@@ -114,9 +115,11 @@ GIT_BRANCH: str = ''
 GIT_COMMIT: str = ''
 GIT_REV:    str = ''
 
+HACTOOLNET_VERSION: str = ''
+
 HASH_BLOCK_SIZE: int = 0x800000 # 8 MiB
 
-def eprint(*args, **kwargs):
+def eprint(*args, **kwargs) -> None:
     print(*args, file=sys.stderr, **kwargs)
 
 def utilsGetPath(path_arg: str, fallback_path: str, is_file: bool, create: bool = False) -> str:
@@ -167,6 +170,16 @@ def utilsGetGitInfo() -> None:
     DEFAULT_COMMENT2 = '[%s revision %s used to generate XML files]' % (SCRIPT_NAME, GIT_REV)
     if comment2_str: DEFAULT_COMMENT2 += '%s%s' % (HTML_LINE_BREAK, comment2_str)
 
+def utilsGetHactoolnetVersion(hactoolnet: str) -> None:
+    global HACTOOLNET_VERSION
+
+    proc = subprocess.run([hactoolnet, '--help'], capture_output=True, encoding='utf-8')
+    if proc.stdout:
+        version = re.search(HACTOOLNET_VERSION_REGEX, proc.stdout)
+        HACTOOLNET_VERSION = (version.group(1) if version else '')
+
+    if not HACTOOLNET_VERSION: raise Exception('Failed to get hactoolnet version!')
+
 def utilsRunHactoolnet(hactoolnet: str, keys: str, type: str, args: List[str]) -> subprocess.CompletedProcess:
     hactoolnet_args = [hactoolnet, '-t', type, '-k', keys, '--disablekeywarns'] + args
     proc = subprocess.run(hactoolnet_args, capture_output=True, encoding='utf-8')
@@ -210,7 +223,9 @@ def utilsConvertNszToNsp(outdir: str, nsz_path: str) -> List:
 
 def utilsCopyKeysFile(keys: str) -> None:
     hactoolnet_keys_path = os.path.abspath(os.path.expanduser(os.path.expandvars(KEYS_PATH)))
-    if keys != hactoolnet_keys_path: shutil.copyfile(keys, hactoolnet_keys_path)
+    if keys != hactoolnet_keys_path:
+        os.makedirs(hactoolnet_keys_path, exist_ok=True)
+        shutil.copyfile(keys, hactoolnet_keys_path)
 
 def utilsGetDecryptedTitlekey(thrd_id: str, hactool: str, keys: str, nca_path: str, enc_titlekey: str) -> str:
     # We'll actually use old hactool here.
@@ -524,15 +539,15 @@ def utilsBuildNspTitleList(ext_nsp_dir: str, hactool: str, hactoolnet: str, keys
 
                         control['languages'].update({
                             lang.name: {
-                                'display_name': control_title.name.replace('&', HTML_AMPERSAND),
-                                'publisher': control_title.publisher.replace('&', HTML_AMPERSAND)
+                                'display_name': html_escape(control_title.name),
+                                'publisher': html_escape(control_title.publisher)
                             }
                         })
 
                         dom_lang = DOM_LANGUAGES.get(lang.name, '')
                         if dom_lang: control['supported_languages'].append(dom_lang)
 
-                    control['display_version'] = nacp.display_version.replace('&', HTML_AMPERSAND)
+                    control['display_version'] = html_escape(nacp.display_version)
                     control['demo'] = nacp.attribute.demo
 
                     # Close and delete NACP.
@@ -600,7 +615,7 @@ def utilsProcessNspFile(args: argparse.Namespace, thrd_id: str, nsp: List, tmp_t
     if not args.exclude_nsp:
         # Get NSP info.
         nsp_properties = utilsCalculateFileChecksums(nsp_path)
-        nsp_properties.update({ 'filename': nsp_filename.replace('&', HTML_AMPERSAND) })
+        nsp_properties.update({ 'filename': html_escape(nsp_filename) })
         nsp_info.update({ 'nsp': nsp_properties })
 
     # Extract NSP.
@@ -675,7 +690,7 @@ def utilsGenerateXmlDataset(args: argparse.Namespace, nsp_list: List) -> None:
 
     release_date_provided = (len(args.release_date) > 0)
 
-    comment2_str = ('' if args.exclude_comment else DEFAULT_COMMENT2).replace('&', HTML_AMPERSAND)
+    comment2_str = html_escape('' if args.exclude_comment else DEFAULT_COMMENT2)
 
     # Open output XML file.
     xml_path = os.path.join(args.outdir, OUTPUT_XML_NAME)
@@ -692,6 +707,8 @@ def utilsGenerateXmlDataset(args: argparse.Namespace, nsp_list: List) -> None:
                 control = title['control']
                 archive_name = ''
 
+                crypto = title['crypto']
+
                 # Generate archive name string.
                 for lang in Nacp.Language:
                     if lang.name == 'count': break
@@ -701,7 +718,7 @@ def utilsGenerateXmlDataset(args: argparse.Namespace, nsp_list: List) -> None:
                     archive_name = control['languages'][lang.name]['display_name']
 
                     # Remove illegal filesystem characters.
-                    archive_name = re.sub(r"[\\/*?\"<>|]", '', archive_name)
+                    archive_name = re.sub(r"[\\/\*\?\"<>\|]", '', archive_name)
 
                     # Replace colons.
                     archive_name = archive_name.replace(':', ' - ')
@@ -759,9 +776,16 @@ def utilsGenerateXmlDataset(args: argparse.Namespace, nsp_list: List) -> None:
                     if cnt['cnt_type'] == 'meta': cnt_filename += '.cnmt'
                     cnt_filename += '.nca'
 
-                    rom_str += '      <file forcename="%s" format="CDN" version="%d" size="%d" crc32="%s" md5="%s" sha1="%s" sha256="%s" filter="%s" />\n' % (cnt_filename, title['version'], cnt['size'], cnt['crc32'], cnt['md5'], cnt['sha1'], cnt['sha256'], utilsCapitalizeString(cnt['cnt_type']))
+                    if cnt['crypto_type'] == 'titlekey':
+                        if crypto['rights_id'] and crypto['ticket']:
+                            nca_note = '[Passed verification with titlekey with SHA256 %s using hactoolnet v%s]' % (crypto['enc_titlekey']['sha256'], HACTOOLNET_VERSION)
+                        else:
+                            nca_note = '[Passed partial verification, missing titlekey, using hactoolnet v%s]' % (HACTOOLNET_VERSION)
+                    else:
+                        nca_note = '[Passed verification, no titlekey required, using hactoolnet v%s]' % (HACTOOLNET_VERSION)
 
-                crypto = title['crypto']
+                    rom_str += '      <file forcename="%s" format="CDN" note="%s" version="%d" size="%d" crc32="%s" md5="%s" sha1="%s" sha256="%s" filter="%s" />\n' % (cnt_filename, nca_note, title['version'], cnt['size'], cnt['crc32'], cnt['md5'], cnt['sha1'], cnt['sha256'], utilsCapitalizeString(cnt['cnt_type']))
+
                 if crypto['rights_id'] and crypto['ticket']:
                     tik = crypto['ticket']
                     etk = crypto['enc_titlekey']
@@ -858,13 +882,16 @@ def main() -> int:
     args.hactoolnet = utilsGetPath(args.hactoolnet, os.path.join(INITIAL_DIR, HACTOOLNET_PATH), True)
     args.keys = utilsGetPath(args.keys, KEYS_PATH, True)
     args.outdir = utilsGetPath(args.outdir, os.path.join(INITIAL_DIR, OUTPUT_PATH), False, True)
-    args.section = args.section.replace('&', HTML_AMPERSAND)
+    args.section = html_escape(args.section)
     args.__setattr__('dump_date', args.dump_date.isoformat() if "dump_date" in args else '')
     args.__setattr__('release_date', args.release_date.isoformat() if "release_date" in args else '')
-    args.dumper = args.dumper.replace('&', HTML_AMPERSAND)
-    args.project = args.project.replace('&', HTML_AMPERSAND)
-    args.tool = args.tool.replace('&', HTML_AMPERSAND)
-    args.region = args.region.replace('&', HTML_AMPERSAND)
+    args.dumper = html_escape(args.dumper)
+    args.project = html_escape(args.project)
+    args.tool = html_escape(args.tool)
+    args.region = html_escape(args.region)
+
+    # Get hactoolnet version.
+    utilsGetHactoolnetVersion(args.hactoolnet)
 
     # Check if nsz has been installed.
     if not shutil.which('nsz'): raise Exception('Error: "nsz" package isn\'t installed.')
