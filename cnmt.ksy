@@ -117,7 +117,7 @@ types:
         type: b6
     instances:
       raw_version:
-        value: '(major.as<u4> << 26) | (minor.as<u4> << 20) | (micro.as<u4> << 16) | (minor_relstep.as<u4> << 8) | micro_relstep.as<u4>'
+        value: '(major.as<u4> << 26) | (minor.as<u4> << 20) | (micro.as<u4> << 16) | (major_relstep.as<u4> << 8) | minor_relstep.as<u4>'
   application_version:
     seq:
       - id: private_ver
