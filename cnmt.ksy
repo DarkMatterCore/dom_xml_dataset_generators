@@ -397,10 +397,10 @@ types:
         type: u4
       - id: src_size_high
         type: u2
-      - id: dst_size_low
-        type: u4
       - id: dst_size_high
         type: u2
+      - id: dst_size_low
+        type: u4
       - id: fragment_count
         type: u2
       - id: fragment_target_content_type
