@@ -739,7 +739,7 @@ def utilsGenerateXmlDataset(args: argparse.Namespace, nsp_list: List) -> None:
 
                 # Generate XML entry.
                 title_str  = '  <game name="">\n'
-                title_str += '    <archive name="%s" name_alt="" region="%s" languages="%s" langchecked="0" version="" version1="%s" version2="%s" devstatus="%s" additional="eShop" special1="" special2="" gameid1="%s" />\n' % (archive_name, args.region, 'En' if (not control['supported_languages']) else ','.join(control['supported_languages']), '' if (title['version'] == 0) else 'v{:d}'.format(title['version']), 'v{:s}'.format(control['display_version']) if (title['title_type'] != 'application' and control['display_version']) else '', dev_status, title['title_id'])
+                title_str += '    <archive name="%s" name_alt="" region="%s" languages="%s" langchecked="0" version1="%s" version2="%s" devstatus="%s" additional="eShop" special1="" special2="" gameid1="%s" />\n' % (archive_name, args.region, 'En' if (not control['supported_languages']) else ','.join(control['supported_languages']), '' if (title['version'] == 0) else 'v{:d}'.format(title['version']), 'v{:s}'.format(control['display_version']) if (title['title_type'] != 'application' and control['display_version']) else '', dev_status, title['title_id'])
 
                 if control['languages'] or control['display_version']:
                     title_str += '    <media>\n'
