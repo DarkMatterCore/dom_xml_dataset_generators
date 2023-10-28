@@ -488,6 +488,10 @@ class TikInfo:
         self._dec_titlekey: TitleKeyInfo = None
 
     def _get_encrypted_titlekey(self) -> None:
+        # Make sure the ticket file exists.
+        if not os.path.exists(self._tik_path):
+            raise self.Exception(f'(Thread {self._thrd_id}) Error: unable to locate ticket file "{self._tik_path}". Skipping current title.')
+
         # Parse ticket file.
         tik = Tik.from_file(self._tik_path)
 
