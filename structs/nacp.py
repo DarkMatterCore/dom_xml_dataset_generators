@@ -1,12 +1,11 @@
 # This is a generated file! Please edit source .ksy file and use kaitai-struct-compiler to rebuild
 
-from pkg_resources import parse_version
 import kaitaistruct
 from kaitaistruct import KaitaiStruct, KaitaiStream, BytesIO
 from enum import Enum
 
 
-if parse_version(kaitaistruct.__version__) < parse_version('0.9'):
+if getattr(kaitaistruct, 'API_VERSION', (0, 9)) < (0, 9):
     raise Exception("Incompatible Kaitai Struct Python API: 0.9 or later is required, but you have %s" % (kaitaistruct.__version__))
 
 class Nacp(KaitaiStruct):
@@ -147,9 +146,9 @@ class Nacp(KaitaiStruct):
         self._read()
 
     def _read(self):
-        self.title = [None] * (16)
+        self.title = []
         for i in range(16):
-            self.title[i] = Nacp.Title(self._io, self, self._root)
+            self.title.append(Nacp.Title(self._io, self, self._root))
 
         self.isbn = (KaitaiStream.bytes_terminate(self._io.read_bytes(37), 0, False)).decode(u"UTF-8")
         self.startup_user_account = KaitaiStream.resolve_enum(Nacp.StartupUserAccount, self._io.read_u1())
@@ -173,9 +172,9 @@ class Nacp(KaitaiStruct):
         self.device_save_data_journal_size = self._io.read_s8le()
         self.bcat_delivery_cache_storage_size = self._io.read_s8le()
         self.application_error_code_category = (KaitaiStream.bytes_terminate(self._io.read_bytes(8), 0, False)).decode(u"UTF-8")
-        self.local_communication_id = [None] * (8)
+        self.local_communication_id = []
         for i in range(8):
-            self.local_communication_id[i] = self._io.read_u8le()
+            self.local_communication_id.append(self._io.read_u8le())
 
         self.logo_type = KaitaiStream.resolve_enum(Nacp.LogoType, self._io.read_u1())
         self.logo_handling = KaitaiStream.resolve_enum(Nacp.LogoHandling, self._io.read_u1())
@@ -201,9 +200,9 @@ class Nacp(KaitaiStruct):
         self.reserved_1 = self._io.read_bytes(1)
         self.runtime_upgrade = KaitaiStream.resolve_enum(Nacp.RuntimeUpgrade, self._io.read_u1())
         self.supporting_limited_licenses = Nacp.SupportingLimitedLicenses(self._io, self, self._root)
-        self.play_log_queryable_application_id = [None] * (16)
+        self.play_log_queryable_application_id = []
         for i in range(16):
-            self.play_log_queryable_application_id[i] = self._io.read_u8le()
+            self.play_log_queryable_application_id.append(self._io.read_u8le())
 
         self.play_log_query_capability = KaitaiStream.resolve_enum(Nacp.PlayLogQueryCapability, self._io.read_u1())
         self.repair = Nacp.Repair(self._io, self, self._root)
@@ -241,9 +240,9 @@ class Nacp(KaitaiStruct):
             self._read()
 
         def _read(self):
-            self.descriptors = [None] * (32)
+            self.descriptors = []
             for i in range(32):
-                self.descriptors[i] = Nacp.RequiredAddOnContentsSetDescriptor(self._io, self, self._root)
+                self.descriptors.append(Nacp.RequiredAddOnContentsSetDescriptor(self._io, self, self._root))
 
 
 
@@ -255,9 +254,9 @@ class Nacp(KaitaiStruct):
             self._read()
 
         def _read(self):
-            self.languages = [None] * (Nacp.Language.count.value)
+            self.languages = []
             for i in range(Nacp.Language.count.value):
-                self.languages[i] = self._io.read_bits_int_le(1) != 0
+                self.languages.append(self._io.read_bits_int_le(1) != 0)
 
             self.reserved = self._io.read_bits_int_le(16)
 
@@ -271,9 +270,9 @@ class Nacp(KaitaiStruct):
 
         def _read(self):
             self.send_group_configuration = Nacp.NeighborDetectionGroupConfiguration(self._io, self, self._root)
-            self.receivable_group_configurations = [None] * (16)
+            self.receivable_group_configurations = []
             for i in range(16):
-                self.receivable_group_configurations[i] = Nacp.NeighborDetectionGroupConfiguration(self._io, self, self._root)
+                self.receivable_group_configurations.append(Nacp.NeighborDetectionGroupConfiguration(self._io, self, self._root))
 
 
 
@@ -333,9 +332,9 @@ class Nacp(KaitaiStruct):
             self._read()
 
         def _read(self):
-            self.organizations = [None] * (Nacp.RatingAgeOrganization.count.value)
+            self.organizations = []
             for i in range(Nacp.RatingAgeOrganization.count.value):
-                self.organizations[i] = self._io.read_s1()
+                self.organizations.append(self._io.read_s1())
 
             self.reserved = self._io.read_bytes(19)
 
@@ -412,9 +411,9 @@ class Nacp(KaitaiStruct):
             self._read()
 
         def _read(self):
-            self.application_id = [None] * (8)
+            self.application_id = []
             for i in range(8):
-                self.application_id[i] = self._io.read_u8le()
+                self.application_id.append(self._io.read_u8le())
 
 
 

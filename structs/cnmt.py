@@ -1,12 +1,11 @@
 # This is a generated file! Please edit source .ksy file and use kaitai-struct-compiler to rebuild
 
-from pkg_resources import parse_version
 import kaitaistruct
 from kaitaistruct import KaitaiStruct, KaitaiStream, BytesIO
 from enum import Enum
 
 
-if parse_version(kaitaistruct.__version__) < parse_version('0.9'):
+if getattr(kaitaistruct, 'API_VERSION', (0, 9)) < (0, 9):
     raise Exception("Incompatible Kaitai Struct Python API: 0.9 or later is required, but you have %s" % (kaitaistruct.__version__))
 
 class Cnmt(KaitaiStruct):
@@ -108,13 +107,13 @@ class Cnmt(KaitaiStruct):
                 _io__raw_extended_header = KaitaiStream(BytesIO(self._raw_extended_header))
                 self.extended_header = Cnmt.Dummy(_io__raw_extended_header, self, self._root)
 
-        self.packaged_content_infos = [None] * (self._root.header.content_count)
+        self.packaged_content_infos = []
         for i in range(self._root.header.content_count):
-            self.packaged_content_infos[i] = Cnmt.PackagedContentInfo(self._io, self, self._root)
+            self.packaged_content_infos.append(Cnmt.PackagedContentInfo(self._io, self, self._root))
 
-        self.content_meta_infos = [None] * (self._root.header.content_meta_count)
+        self.content_meta_infos = []
         for i in range(self._root.header.content_meta_count):
-            self.content_meta_infos[i] = Cnmt.ContentMetaInfo(self._io, self, self._root)
+            self.content_meta_infos.append(Cnmt.ContentMetaInfo(self._io, self, self._root))
 
         if self.extended_data_size > 0:
             _on = self._root.header.content_meta_type
@@ -196,27 +195,27 @@ class Cnmt(KaitaiStruct):
             self.dst_version = Cnmt.ApplicationVersion(self._io, self, self._root)
             self.fragment_set_count = self._io.read_u2le()
             self.reserved = self._io.read_bytes(6)
-            self.fragment_sets = [None] * (self.fragment_set_count)
+            self.fragment_sets = []
             for i in range(self.fragment_set_count):
-                self.fragment_sets[i] = Cnmt.PatchFragmentSet(self._io, self, self._root)
+                self.fragment_sets.append(Cnmt.PatchFragmentSet(self._io, self, self._root))
 
             if self.fragment_set_count > 0:
-                self.fragment_indicators = [None] * (self.fragment_count_sum[-1].result)
+                self.fragment_indicators = []
                 for i in range(self.fragment_count_sum[-1].result):
-                    self.fragment_indicators[i] = Cnmt.PatchFragmentIndicator(self._io, self, self._root)
+                    self.fragment_indicators.append(Cnmt.PatchFragmentIndicator(self._io, self, self._root))
 
 
 
         @property
         def fragment_count_sum(self):
             if hasattr(self, '_m_fragment_count_sum'):
-                return self._m_fragment_count_sum if hasattr(self, '_m_fragment_count_sum') else None
+                return self._m_fragment_count_sum
 
-            self._m_fragment_count_sum = [None] * (self.fragment_set_count)
+            self._m_fragment_count_sum = []
             for i in range(self.fragment_set_count):
-                self._m_fragment_count_sum[i] = Cnmt.SumReduce(self.fragment_sets[i].fragment_count, (0 if i == 0 else self.fragment_count_sum[(i - 1)].result), self._io, self, self._root)
+                self._m_fragment_count_sum.append(Cnmt.SumReduce(self.fragment_sets[i].fragment_count, (0 if i == 0 else self.fragment_count_sum[(i - 1)].result), self._io, self, self._root))
 
-            return self._m_fragment_count_sum if hasattr(self, '_m_fragment_count_sum') else None
+            return getattr(self, '_m_fragment_count_sum', None)
 
 
     class PatchExtendedData(KaitaiStruct):
@@ -234,47 +233,47 @@ class Cnmt(KaitaiStruct):
             self.history_content_count = self._io.read_u4le()
             self.delta_content_count = self._io.read_u4le()
             self.reserved = self._io.read_bytes(4)
-            self.history_headers = [None] * (self.history_count)
+            self.history_headers = []
             for i in range(self.history_count):
-                self.history_headers[i] = Cnmt.PatchHistoryHeader(self._io, self, self._root)
+                self.history_headers.append(Cnmt.PatchHistoryHeader(self._io, self, self._root))
 
-            self.delta_histories = [None] * (self.delta_history_count)
+            self.delta_histories = []
             for i in range(self.delta_history_count):
-                self.delta_histories[i] = Cnmt.PatchDeltaHistory(self._io, self, self._root)
+                self.delta_histories.append(Cnmt.PatchDeltaHistory(self._io, self, self._root))
 
-            self.delta_headers = [None] * (self.delta_count)
+            self.delta_headers = []
             for i in range(self.delta_count):
-                self.delta_headers[i] = Cnmt.PatchDeltaHeader(self._io, self, self._root)
+                self.delta_headers.append(Cnmt.PatchDeltaHeader(self._io, self, self._root))
 
-            self.fragment_sets = [None] * (self.fragment_set_count)
+            self.fragment_sets = []
             for i in range(self.fragment_set_count):
-                self.fragment_sets[i] = Cnmt.PatchFragmentSet(self._io, self, self._root)
+                self.fragment_sets.append(Cnmt.PatchFragmentSet(self._io, self, self._root))
 
-            self.history_contents = [None] * (self.history_content_count)
+            self.history_contents = []
             for i in range(self.history_content_count):
-                self.history_contents[i] = Cnmt.ContentInfo(self._io, self, self._root)
+                self.history_contents.append(Cnmt.ContentInfo(self._io, self, self._root))
 
-            self.delta_contents = [None] * (self.delta_content_count)
+            self.delta_contents = []
             for i in range(self.delta_content_count):
-                self.delta_contents[i] = Cnmt.PackagedContentInfo(self._io, self, self._root)
+                self.delta_contents.append(Cnmt.PackagedContentInfo(self._io, self, self._root))
 
             if self.fragment_set_count > 0:
-                self.fragment_indicators = [None] * (self.fragment_count_sum[-1].result)
+                self.fragment_indicators = []
                 for i in range(self.fragment_count_sum[-1].result):
-                    self.fragment_indicators[i] = Cnmt.PatchFragmentIndicator(self._io, self, self._root)
+                    self.fragment_indicators.append(Cnmt.PatchFragmentIndicator(self._io, self, self._root))
 
 
 
         @property
         def fragment_count_sum(self):
             if hasattr(self, '_m_fragment_count_sum'):
-                return self._m_fragment_count_sum if hasattr(self, '_m_fragment_count_sum') else None
+                return self._m_fragment_count_sum
 
-            self._m_fragment_count_sum = [None] * (self.fragment_set_count)
+            self._m_fragment_count_sum = []
             for i in range(self.fragment_set_count):
-                self._m_fragment_count_sum[i] = Cnmt.SumReduce(self.fragment_sets[i].fragment_count, (0 if i == 0 else self.fragment_count_sum[(i - 1)].result), self._io, self, self._root)
+                self._m_fragment_count_sum.append(Cnmt.SumReduce(self.fragment_sets[i].fragment_count, (0 if i == 0 else self.fragment_count_sum[(i - 1)].result), self._io, self, self._root))
 
-            return self._m_fragment_count_sum if hasattr(self, '_m_fragment_count_sum') else None
+            return getattr(self, '_m_fragment_count_sum', None)
 
 
     class ContentMetaInfo(KaitaiStruct):
@@ -318,10 +317,10 @@ class Cnmt(KaitaiStruct):
         @property
         def result(self):
             if hasattr(self, '_m_result'):
-                return self._m_result if hasattr(self, '_m_result') else None
+                return self._m_result
 
             self._m_result = (self.step_item + self.accumulator)
-            return self._m_result if hasattr(self, '_m_result') else None
+            return getattr(self, '_m_result', None)
 
 
     class AocExtendedHeader(KaitaiStruct):
@@ -374,42 +373,42 @@ class Cnmt(KaitaiStruct):
             self.version = KaitaiStream.resolve_enum(Cnmt.FirmwareVariationVersion, self._io.read_u4le())
             self.variation_count = self._io.read_u4le()
             if self.version == Cnmt.FirmwareVariationVersion.v1:
-                self.firmware_variation_infos_v1 = [None] * (self.variation_count)
+                self.firmware_variation_infos_v1 = []
                 for i in range(self.variation_count):
-                    self.firmware_variation_infos_v1[i] = Cnmt.FirmwareVariationInfoV1(self._io, self, self._root)
+                    self.firmware_variation_infos_v1.append(Cnmt.FirmwareVariationInfoV1(self._io, self, self._root))
 
 
             if self.version == Cnmt.FirmwareVariationVersion.v2:
-                self.firmware_variation_ids = [None] * (self.variation_count)
+                self.firmware_variation_ids = []
                 for i in range(self.variation_count):
-                    self.firmware_variation_ids[i] = self._io.read_u4le()
+                    self.firmware_variation_ids.append(self._io.read_u4le())
 
 
             if self.version == Cnmt.FirmwareVariationVersion.v2:
-                self.firmware_variation_infos_v2 = [None] * (self.variation_count)
+                self.firmware_variation_infos_v2 = []
                 for i in range(self.variation_count):
-                    self.firmware_variation_infos_v2[i] = Cnmt.FirmwareVariationInfoV2(self._io, self, self._root)
+                    self.firmware_variation_infos_v2.append(Cnmt.FirmwareVariationInfoV2(self._io, self, self._root))
 
 
             if  ((self.version == Cnmt.FirmwareVariationVersion.v2) and (self.variation_count > 0)) :
-                self.content_meta_infos = [None] * (self.meta_count_sum[-1].result)
+                self.content_meta_infos = []
                 for i in range(self.meta_count_sum[-1].result):
-                    self.content_meta_infos[i] = Cnmt.ContentMetaInfo(self._io, self, self._root)
+                    self.content_meta_infos.append(Cnmt.ContentMetaInfo(self._io, self, self._root))
 
 
 
         @property
         def meta_count_sum(self):
             if hasattr(self, '_m_meta_count_sum'):
-                return self._m_meta_count_sum if hasattr(self, '_m_meta_count_sum') else None
+                return self._m_meta_count_sum
 
             if self.version == Cnmt.FirmwareVariationVersion.v2:
-                self._m_meta_count_sum = [None] * (self.variation_count)
+                self._m_meta_count_sum = []
                 for i in range(self.variation_count):
-                    self._m_meta_count_sum[i] = Cnmt.SumReduce((0 if self.firmware_variation_infos_v2[i].refer_to_base != 0 else self.firmware_variation_infos_v2[i].meta_count), (0 if i == 0 else self.meta_count_sum[(i - 1)].result), self._io, self, self._root)
+                    self._m_meta_count_sum.append(Cnmt.SumReduce((0 if self.firmware_variation_infos_v2[i].refer_to_base != 0 else self.firmware_variation_infos_v2[i].meta_count), (0 if i == 0 else self.meta_count_sum[(i - 1)].result), self._io, self, self._root))
 
 
-            return self._m_meta_count_sum if hasattr(self, '_m_meta_count_sum') else None
+            return getattr(self, '_m_meta_count_sum', None)
 
 
     class Dummy(KaitaiStruct):
@@ -491,10 +490,10 @@ class Cnmt(KaitaiStruct):
         @property
         def raw_version(self):
             if hasattr(self, '_m_raw_version'):
-                return self._m_raw_version if hasattr(self, '_m_raw_version') else None
+                return self._m_raw_version
 
-            self._m_raw_version = (((((self.major << 26) | (self.minor << 20)) | (self.micro << 16)) | (self.minor_relstep << 8)) | self.micro_relstep)
-            return self._m_raw_version if hasattr(self, '_m_raw_version') else None
+            self._m_raw_version = (((((self.major << 26) | (self.minor << 20)) | (self.micro << 16)) | (self.major_relstep << 8)) | self.minor_relstep)
+            return getattr(self, '_m_raw_version', None)
 
 
     class ApplicationVersion(KaitaiStruct):
@@ -511,10 +510,10 @@ class Cnmt(KaitaiStruct):
         @property
         def raw_version(self):
             if hasattr(self, '_m_raw_version'):
-                return self._m_raw_version if hasattr(self, '_m_raw_version') else None
+                return self._m_raw_version
 
             self._m_raw_version = ((self.release_ver << 16) | self.private_ver)
-            return self._m_raw_version if hasattr(self, '_m_raw_version') else None
+            return getattr(self, '_m_raw_version', None)
 
 
     class ApplicationExtendedHeader(KaitaiStruct):
@@ -612,8 +611,8 @@ class Cnmt(KaitaiStruct):
             self.dst_content_id = self._io.read_bytes(16)
             self.src_size_low = self._io.read_u4le()
             self.src_size_high = self._io.read_u2le()
-            self.dst_size_low = self._io.read_u4le()
             self.dst_size_high = self._io.read_u2le()
+            self.dst_size_low = self._io.read_u4le()
             self.fragment_count = self._io.read_u2le()
             self.fragment_target_content_type = KaitaiStream.resolve_enum(Cnmt.ContentType, self._io.read_u1())
             self.update_type = KaitaiStream.resolve_enum(Cnmt.UpdateType, self._io.read_u1())
@@ -622,18 +621,18 @@ class Cnmt(KaitaiStruct):
         @property
         def src_size(self):
             if hasattr(self, '_m_src_size'):
-                return self._m_src_size if hasattr(self, '_m_src_size') else None
+                return self._m_src_size
 
             self._m_src_size = ((self.src_size_high << 32) | self.src_size_low)
-            return self._m_src_size if hasattr(self, '_m_src_size') else None
+            return getattr(self, '_m_src_size', None)
 
         @property
         def dst_size(self):
             if hasattr(self, '_m_dst_size'):
-                return self._m_dst_size if hasattr(self, '_m_dst_size') else None
+                return self._m_dst_size
 
             self._m_dst_size = ((self.dst_size_high << 32) | self.dst_size_low)
-            return self._m_dst_size if hasattr(self, '_m_dst_size') else None
+            return getattr(self, '_m_dst_size', None)
 
 
     class ContentInfo(KaitaiStruct):
@@ -654,10 +653,10 @@ class Cnmt(KaitaiStruct):
         @property
         def raw_size(self):
             if hasattr(self, '_m_raw_size'):
-                return self._m_raw_size if hasattr(self, '_m_raw_size') else None
+                return self._m_raw_size
 
             self._m_raw_size = ((self.size_high << 32) | self.size_low)
-            return self._m_raw_size if hasattr(self, '_m_raw_size') else None
+            return getattr(self, '_m_raw_size', None)
 
 
     class DeltaExtendedHeader(KaitaiStruct):
@@ -694,11 +693,11 @@ class Cnmt(KaitaiStruct):
     @property
     def extended_data_size(self):
         if hasattr(self, '_m_extended_data_size'):
-            return self._m_extended_data_size if hasattr(self, '_m_extended_data_size') else None
+            return self._m_extended_data_size
 
         if self._root.header.extended_header_size > 0:
             self._m_extended_data_size = (self.extended_header.extended_data_size if self._root.header.content_meta_type == Cnmt.ContentMetaType.system_update else (self.extended_header.extended_data_size if self._root.header.content_meta_type == Cnmt.ContentMetaType.patch else (self.extended_header.extended_data_size if self._root.header.content_meta_type == Cnmt.ContentMetaType.delta else (self.extended_header.extended_data_size if self._root.header.content_meta_type == Cnmt.ContentMetaType.data_patch else 0))))
 
-        return self._m_extended_data_size if hasattr(self, '_m_extended_data_size') else None
+        return getattr(self, '_m_extended_data_size', None)
 
 

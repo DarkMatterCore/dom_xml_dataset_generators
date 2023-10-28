@@ -1,12 +1,11 @@
 # This is a generated file! Please edit source .ksy file and use kaitai-struct-compiler to rebuild
 
-from pkg_resources import parse_version
 import kaitaistruct
 from kaitaistruct import KaitaiStruct, KaitaiStream, BytesIO
 from enum import Enum
 
 
-if parse_version(kaitaistruct.__version__) < parse_version('0.9'):
+if getattr(kaitaistruct, 'API_VERSION', (0, 9)) < (0, 9):
     raise Exception("Incompatible Kaitai Struct Python API: 0.9 or later is required, but you have %s" % (kaitaistruct.__version__))
 
 class Tik(KaitaiStruct):
@@ -135,36 +134,36 @@ class Tik(KaitaiStruct):
 
         def _read(self):
             self.esv2_record = Tik.Esv2SectionRecord(self._io, self, self._root)
-            self._raw_esv1_records = [None] * (self.esv2_record.record_count)
-            self.esv1_records = [None] * (self.esv2_record.record_count)
+            self._raw_esv1_records = []
+            self.esv1_records = []
             for i in range(self.esv2_record.record_count):
                 _on = self.esv2_record.section_type
                 if _on == Tik.SectionType.access_title:
-                    self._raw_esv1_records[i] = self._io.read_bytes(self.esv2_record.record_size)
+                    self._raw_esv1_records.append(self._io.read_bytes(self.esv2_record.record_size))
                     _io__raw_esv1_records = KaitaiStream(BytesIO(self._raw_esv1_records[i]))
-                    self.esv1_records[i] = Tik.Esv1AccessTitleRecord(_io__raw_esv1_records, self, self._root)
+                    self.esv1_records.append(Tik.Esv1AccessTitleRecord(_io__raw_esv1_records, self, self._root))
                 elif _on == Tik.SectionType.content_consumption:
-                    self._raw_esv1_records[i] = self._io.read_bytes(self.esv2_record.record_size)
+                    self._raw_esv1_records.append(self._io.read_bytes(self.esv2_record.record_size))
                     _io__raw_esv1_records = KaitaiStream(BytesIO(self._raw_esv1_records[i]))
-                    self.esv1_records[i] = Tik.Esv1ContentConsumptionRecord(_io__raw_esv1_records, self, self._root)
+                    self.esv1_records.append(Tik.Esv1ContentConsumptionRecord(_io__raw_esv1_records, self, self._root))
                 elif _on == Tik.SectionType.limited_resource:
-                    self._raw_esv1_records[i] = self._io.read_bytes(self.esv2_record.record_size)
+                    self._raw_esv1_records.append(self._io.read_bytes(self.esv2_record.record_size))
                     _io__raw_esv1_records = KaitaiStream(BytesIO(self._raw_esv1_records[i]))
-                    self.esv1_records[i] = Tik.Esv1LimitedResourceRecord(_io__raw_esv1_records, self, self._root)
+                    self.esv1_records.append(Tik.Esv1LimitedResourceRecord(_io__raw_esv1_records, self, self._root))
                 elif _on == Tik.SectionType.permanent:
-                    self._raw_esv1_records[i] = self._io.read_bytes(self.esv2_record.record_size)
+                    self._raw_esv1_records.append(self._io.read_bytes(self.esv2_record.record_size))
                     _io__raw_esv1_records = KaitaiStream(BytesIO(self._raw_esv1_records[i]))
-                    self.esv1_records[i] = Tik.Esv1PermanentRecord(_io__raw_esv1_records, self, self._root)
+                    self.esv1_records.append(Tik.Esv1PermanentRecord(_io__raw_esv1_records, self, self._root))
                 elif _on == Tik.SectionType.content:
-                    self._raw_esv1_records[i] = self._io.read_bytes(self.esv2_record.record_size)
+                    self._raw_esv1_records.append(self._io.read_bytes(self.esv2_record.record_size))
                     _io__raw_esv1_records = KaitaiStream(BytesIO(self._raw_esv1_records[i]))
-                    self.esv1_records[i] = Tik.Esv1ContentRecord(_io__raw_esv1_records, self, self._root)
+                    self.esv1_records.append(Tik.Esv1ContentRecord(_io__raw_esv1_records, self, self._root))
                 elif _on == Tik.SectionType.subscription:
-                    self._raw_esv1_records[i] = self._io.read_bytes(self.esv2_record.record_size)
+                    self._raw_esv1_records.append(self._io.read_bytes(self.esv2_record.record_size))
                     _io__raw_esv1_records = KaitaiStream(BytesIO(self._raw_esv1_records[i]))
-                    self.esv1_records[i] = Tik.Esv1SubscriptionRecord(_io__raw_esv1_records, self, self._root)
+                    self.esv1_records.append(Tik.Esv1SubscriptionRecord(_io__raw_esv1_records, self, self._root))
                 else:
-                    self.esv1_records[i] = self._io.read_bytes(self.esv2_record.record_size)
+                    self.esv1_records.append(self._io.read_bytes(self.esv2_record.record_size))
 
 
 
@@ -230,9 +229,9 @@ class Tik(KaitaiStruct):
             self._read()
 
         def _read(self):
-            self.section_records = [None] * (self.sect_hdr_count)
+            self.section_records = []
             for i in range(self.sect_hdr_count):
-                self.section_records[i] = Tik.SectionRecord(self._io, self, self._root)
+                self.section_records.append(Tik.SectionRecord(self._io, self, self._root))
 
 
 
