@@ -163,21 +163,21 @@ def utilsGetGitRepositoryInfo() -> None:
     # Get git branch.
     proc = utilsRunGit(['rev-parse', '--abbrev-ref', 'HEAD'])
     if (not proc.stdout) or (proc.returncode != 0):
-        raise Exception('Failed to run git!')
+        raise Exception('Failed to run git! (branch).')
 
     GIT_BRANCH = proc.stdout.strip()
 
     # Get git commit.
     proc = utilsRunGit(['rev-parse', '--short', 'HEAD'])
     if (not proc.stdout) or (proc.returncode != 0):
-        raise Exception('Failed to run git!')
+        raise Exception('Failed to run git! (commit).')
 
     GIT_COMMIT = proc.stdout.strip()
 
     # Generate git revision string.
     proc = utilsRunGit(['status', '--porcelain'])
-    if (not proc.stdout) or (proc.returncode != 0):
-        raise Exception('Failed to run git!')
+    if proc.returncode != 0:
+        raise Exception('Failed to run git! (porcelain).')
 
     GIT_REV = f'{GIT_BRANCH}-{GIT_COMMIT}{"-dirty" if proc.stdout.strip() else ""}'
 
