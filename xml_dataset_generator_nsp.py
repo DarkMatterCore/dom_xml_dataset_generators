@@ -20,24 +20,7 @@
 
 from __future__ import annotations
 
-import os
-import sys
-import re
-import base64
-import subprocess
-import traceback
-import struct
-import shutil
-import hashlib
-import zlib
-import random
-import string
-import datetime
-import glob
-import threading
-import psutil
-import time
-import argparse
+import os, sys, re, subprocess, shutil, hashlib, zlib, random, string, datetime, glob, threading, psutil, time, argparse
 
 from io import BytesIO
 from dataclasses import dataclass
@@ -47,24 +30,6 @@ from html import escape as html_escape
 from structs.cnmt import Cnmt
 from structs.tik import Tik
 from structs.nacp import Nacp
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
 
 FileListEntry = tuple[str, int]
 FileList = list[FileListEntry]
