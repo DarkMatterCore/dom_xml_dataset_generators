@@ -639,6 +639,10 @@ class TitleInfo:
         self._version = self._cnmt.header.version.raw_version
         self._title_type = Cnmt.ContentMetaType(self._cnmt.header.content_meta_type)
 
+        # Make sure we're dealing with a supported title type.
+        if (self._title_type.value < Cnmt.ContentMetaType.application.value) or (self._title_type.value > Cnmt.ContentMetaType.data_patch.value) or (self._title_type.value == Cnmt.ContentMetaType.delta.value):
+            raise self.Exception(f'(Thread {self._thrd_id}) Error: invalid content meta type value (0x{self._title_type.value:02x}). Skipping current title.')
+
     def _build_content_list(self) -> None:
         # Iterate over all content records.
         for i in range(self._cnmt.header.content_count):
