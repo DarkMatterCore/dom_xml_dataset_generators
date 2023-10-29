@@ -320,7 +320,7 @@ class NcaInfo:
         # Content IDs are just the first half of the NCA's SHA-256 checksum.
         return self._checksums.sha256[:32]
 
-    def __init__(self, nca_path: str, nca_size: int, thrd_id: str, tmp_titlekeys_path: str = '', expected_cnt_type: str = '') -> None:
+    def __init__(self, nca_path: str, nca_size: int, thrd_id: str, tmp_titlekeys_path: str, expected_cnt_type: str = '') -> None:
         # Populate class variables.
         self._populate_vars(nca_path, nca_size, thrd_id, tmp_titlekeys_path, expected_cnt_type)
 
@@ -354,19 +354,11 @@ class NcaInfo:
         self._cnt_id = ''
 
     def _get_hactoolnet_output(self) -> subprocess.CompletedProcess[str]:
-        args: list[str] = []
-
-        # Define hactoolnet arguments.
-        if self._tmp_titlekeys_path:
-            args.extend(['--titlekeys', self._tmp_titlekeys_path])
-
-        args.extend(['-y', self._nca_path])
-
         # Run hactoolnet.
-        proc = utilsRunHactoolnet('nca', args)
+        proc = utilsRunHactoolnet('nca', ['--titlekeys', self._tmp_titlekeys_path, '-y', self._nca_path])
         if (not proc.stdout) or (proc.returncode != 0):
             # Check if we're dealing with a missing titlekey error.
-            if (not self._tmp_titlekeys_path) and proc.stderr and re.search(HACTOOLNET_MISSING_TITLEKEY_REGEX, proc.stderr):
+            if proc.stderr and re.search(HACTOOLNET_MISSING_TITLEKEY_REGEX, proc.stderr):
                 # Return prematurely, but provide the rights ID to the caller.
                 rights_id = re.search(HACTOOLNET_ALT_RIGHTS_ID_REGEX, proc.stderr)
                 rights_id = (rights_id.group(1).lower() if rights_id else '')
@@ -401,7 +393,7 @@ class NcaInfo:
         if (self._crypto_type == 'titlekey') and (not self._rights_id):
             raise self.Exception(f'(Thread {self._thrd_id}) Failed to parse Rights ID from hactoolnet output.')
 
-        if (not self._valid) and ((self._crypto_type != 'titlekey') or self._tmp_titlekeys_path):
+        if not self._valid:
             raise self.Exception(f'(Thread {self._thrd_id}) Signature/hash verification failed.')
 
 @dataclass(init=False)
@@ -699,7 +691,7 @@ class TitleInfo:
     def _get_nca_info(self, nca_path: str, nca_size: int) -> NcaInfo:
         try:
             # Retrieve NCA information.
-            nca_info = NcaInfo(nca_path, nca_size, self._thrd_id, (self._tmp_titlekeys_path if self._rights_id else ''))
+            nca_info = NcaInfo(nca_path, nca_size, self._thrd_id, self._tmp_titlekeys_path)
         except NcaInfo.Exception as e:
             # Check if we're dealing with a missing titlekey.
             if e.rights_id and (not self._rights_id):
@@ -955,7 +947,7 @@ class NspInfo:
 
             try:
                 # Retrieve Meta NCA information.
-                nca_info = NcaInfo(entry.path, nca_size, self._thrd_id, '', 'meta')
+                nca_info = NcaInfo(entry.path, nca_size, self._thrd_id, self._tmp_titlekeys_path, 'meta')
             except NcaInfo.Exception as e:
                 eprint(str(e))
                 continue
@@ -1122,8 +1114,10 @@ def utilsGenerateXmlDataset(nsp_list: list[NspInfo]) -> None:
 def utilsProcessNspList(file_list: FileList, results: list[NspInfo]) -> None:
     thrd_id = int(threading.current_thread().name)
 
-    # Generate temporary titlekeys filename for this thread.
+    # Generate temporary titlekeys file for this thread.
     tmp_titlekeys_path = os.path.join(OUTPUT_PATH, f'{GIT_REV}_{utilsGetRandomString(8)}_{thrd_id}_title.keys')
+    with open(tmp_titlekeys_path, 'w'):
+        pass
 
     # Process NSP files.
     for entry in file_list:
