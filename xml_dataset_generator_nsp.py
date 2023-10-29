@@ -937,30 +937,28 @@ class NspInfo:
         meta_nca_infos: list[NcaInfo] = []
 
         # Scan extracted NSP directory. We'll look for all the available Meta NCAs.
-        dir_scan = os.scandir(self._ext_nsp_path)
-        for entry in dir_scan:
-            # Skip entries that don't match out criteria.
-            if entry.is_dir() or (not entry.name.lower().endswith('.cnmt.nca')):
+        meta_nca_list = glob.glob(os.path.join(self._ext_nsp_path, '*.cnmt.nca'))
+        for cur_path in meta_nca_list:
+            # Skip directories.
+            if os.path.isdir(cur_path):
                 continue
 
-            nca_size = entry.stat().st_size
-            if nca_size <= 0:
+            # Skip empty files.
+            nca_size = os.path.getsize(cur_path)
+            if not nca_size:
                 continue
 
-            print(f'(Thread {self._thrd_id}) Parsing Meta NCA: "{os.path.basename(entry.path)}".', flush=True)
+            print(f'(Thread {self._thrd_id}) Parsing Meta NCA: "{os.path.basename(cur_path)}".', flush=True)
 
             try:
                 # Retrieve Meta NCA information.
-                nca_info = NcaInfo(entry.path, nca_size, self._thrd_id, self._tmp_titlekeys_path, 'meta')
+                nca_info = NcaInfo(cur_path, nca_size, self._thrd_id, self._tmp_titlekeys_path, 'meta')
             except NcaInfo.Exception as e:
                 eprint(str(e))
                 continue
 
             # Update Meta NCA list.
             meta_nca_infos.append(nca_info)
-
-        # Close directory scan.
-        dir_scan.close()
 
         return meta_nca_infos
 
@@ -1273,30 +1271,26 @@ def utilsProcessNspList(file_list: FileList, results: list[NspInfo]) -> None:
     if os.path.exists(tmp_titlekeys_path):
         os.remove(tmp_titlekeys_path)
 
-def utilsGetFileList(dir: str, recursive: bool = False) -> FileList:
+def utilsGetNspFileList(path: str) -> FileList:
     file_list: FileList = []
 
     # Scan directory.
-    dir_scan = os.scandir(dir)
-    for entry in dir_scan:
+    dir_entries = glob.glob(pathname='**', root_dir=path, recursive=True)
+    for cur_path in dir_entries:
+        cur_path = os.path.join(path, cur_path)
+        entry_name = os.path.basename(cur_path).lower()
+
         # Skip directories and files that don't match our criteria.
-        entry_name = entry.name.lower()
-        if (entry.is_dir() and (not recursive)) or (not (entry_name.endswith('.nsp') or entry_name.endswith('.nsz'))):
+        if os.path.isdir(cur_path) or (not (entry_name.endswith('.nsp') or entry_name.endswith('.nsz'))):
             continue
 
-        if entry.is_file():
-            # Skip empty files.
-            file_size = entry.stat().st_size
-            if not file_size:
-                continue
+        # Skip empty files.
+        file_size = os.path.getsize(cur_path)
+        if not file_size:
+            continue
 
-            # Update list.
-            file_list.append((entry.path, file_size))
-        else:
-            file_list.extend(utilsGetFileList(entry.path, True))
-
-    # Close directory scan.
-    dir_scan.close()
+        # Update list.
+        file_list.append((cur_path, file_size))
 
     return file_list
 
@@ -1304,7 +1298,7 @@ def utilsProcessNspDirectory() -> None:
     nsp_list: list[NspInfo] = []
 
     # Get NSP/NSZ file list.
-    file_list = utilsGetFileList(NSP_PATH, True)
+    file_list = utilsGetNspFileList(NSP_PATH)
     if not file_list:
         raise Exception('Error: input directory holds no NSP/NSZ files.')
 
