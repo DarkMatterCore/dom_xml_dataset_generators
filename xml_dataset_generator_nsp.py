@@ -211,19 +211,6 @@ def utilsCopyKeysFile() -> None:
         os.makedirs(hactoolnet_keys_path, exist_ok=True)
         shutil.copyfile(KEYS_PATH, hactoolnet_keys_path)
 
-def utilsNormalizeArchiveName(name: str) -> str:
-    # Remove illegal filesystem characters.
-    out = re.sub(r'[\\/\*\?\"<>\|]', '', name)
-
-    # Replace colons with dashes.
-    out = out.replace(':', ' - ')
-
-    # Replace consecutive whitespaces with a single one.
-    out = ' '.join(out.split()).strip()
-
-    # Escape HTML entities.
-    return html_escape(out)
-
 @dataclass(init=False)
 class Checksums:
     crc32: str = ''
@@ -320,7 +307,7 @@ class NcaInfo:
         # Content IDs are just the first half of the NCA's SHA-256 checksum.
         return self._checksums.sha256[:32]
 
-    def __init__(self, nca_path: str, nca_size: int, thrd_id: str, tmp_titlekeys_path: str, expected_cnt_type: str = '') -> None:
+    def __init__(self, nca_path: str, nca_size: int, thrd_id: int, tmp_titlekeys_path: str, expected_cnt_type: str = '') -> None:
         # Populate class variables.
         self._populate_vars(nca_path, nca_size, thrd_id, tmp_titlekeys_path, expected_cnt_type)
 
@@ -333,7 +320,7 @@ class NcaInfo:
         # Calculate NCA checksums.
         self._checksums = Checksums.from_path(self._nca_path)
 
-    def _populate_vars(self, nca_path: str, nca_size: int, thrd_id: str, tmp_titlekeys_path: str, expected_cnt_type: str) -> None:
+    def _populate_vars(self, nca_path: str, nca_size: int, thrd_id: int, tmp_titlekeys_path: str, expected_cnt_type: str) -> None:
         self._nca_path = nca_path
         self._nca_size = nca_size
         self._nca_filename = os.path.basename(self._nca_path)
@@ -350,8 +337,6 @@ class NcaInfo:
         self._valid = False
 
         self._checksums: Checksums = None
-
-        self._cnt_id = ''
 
     def _get_hactoolnet_output(self) -> subprocess.CompletedProcess[str]:
         # Run hactoolnet.
@@ -1011,7 +996,7 @@ class XmlDataset:
 
         @property
         def normalized_name(self) -> str:
-            return self.name.lower().capitalize()
+            return utilsCapitalizeString(self.name, ' ').replace('Dlc', 'DLC')
 
         def __str__(self):
             return f'{self.__class__.__name__}.{self.name}'
@@ -1172,15 +1157,28 @@ class XmlDataset:
     def _get_archive_name(self, nsp_info: NspInfo, title_info: TitleInfo) -> str:
         if title_info.lang_entries:
             # Default to the first NACP language entry we found.
-            archive_name = utilsNormalizeArchiveName(title_info.lang_entries[0].name)
+            archive_name = self._normalize_archive_name(title_info.lang_entries[0].name)
         else:
             # Use the NSP filename (gross, I know, but it's either this or using an external database).
-            archive_name = utilsNormalizeArchiveName(re.split(r'[\[\(]', os.path.splitext(nsp_info.filename)[0], 1)[0])
+            archive_name = self._normalize_archive_name(re.split(r'[\[\(]', os.path.splitext(nsp_info.filename)[0], 1)[0])
             if not archive_name:
                 # Fallback to just using the title ID.
                 archive_name = title_info.id
 
         return archive_name
+
+    def _normalize_archive_name(self, name: str) -> str:
+        # Remove illegal filesystem characters.
+        out = re.sub(r'[\\/\*\?\"<>\|]', '', name)
+
+        # Replace colons with dashes.
+        out = out.replace(':', ' - ')
+
+        # Replace consecutive whitespaces with a single one.
+        out = ' '.join(out.split()).strip()
+
+        # Escape HTML entities.
+        return html_escape(out)
 
     def _get_languages(self, title_info: TitleInfo) -> str:
         return ('En' if not title_info.supported_dom_languages else ','.join(title_info.supported_dom_languages))
@@ -1239,15 +1237,20 @@ def utilsGenerateXmlDataset(nsp_list: list[NspInfo]) -> None:
             # Add entry to XML object.
             xml_obj[idx].add_entry(nsp_info, title_info)
 
+    print()
+
     # Finalize all XML objects.
     for cur_xml_obj in xml_obj:
         cur_xml_obj.finalize()
 
         if cur_xml_obj.entry_count > 0:
-            print(f'\nSuccessfully wrote {cur_xml_obj.entry_count} {cur_xml_obj.type.normalized_name} {"entries" if cur_xml_obj.entry_count > 1 else "entry"} to "{cur_xml_obj.path}".', flush=True)
+            print(f'Successfully wrote {cur_xml_obj.entry_count} {cur_xml_obj.type.normalized_name} {"entries" if cur_xml_obj.entry_count > 1 else "entry"} to "{cur_xml_obj.path}".', flush=True)
 
-def utilsProcessNspList(file_list: FileList, results: list[NspInfo]) -> None:
+def utilsProcessNspList(file_list_chunks: list[FileList], results: list[list[NspInfo]]) -> None:
     thrd_id = int(threading.current_thread().name)
+
+    file_list = file_list_chunks[thrd_id]
+    thrd_res: list[NspInfo] = []
 
     # Generate temporary titlekeys file for this thread.
     tmp_titlekeys_path = os.path.join(OUTPUT_PATH, f'{GIT_REV}_{utilsGetRandomString(8)}_{thrd_id}_title.keys')
@@ -1265,7 +1268,10 @@ def utilsProcessNspList(file_list: FileList, results: list[NspInfo]) -> None:
             continue
 
         # Update output list.
-        results.append(nsp_info)
+        thrd_res.append(nsp_info)
+
+    # Update results entry.
+    results[thrd_id] = thrd_res
 
     # Remove temporary titlekeys file.
     if os.path.exists(tmp_titlekeys_path):
@@ -1307,10 +1313,10 @@ def utilsProcessNspDirectory() -> None:
     num_threads = len(file_list_chunks)
 
     threads: list[threading.Thread] = [None] * num_threads
-    results: list[list[NspInfo]] = [[]] * num_threads
+    results: list[list[NspInfo]] = [None] * num_threads
 
     for i in range(num_threads):
-        threads[i] = threading.Thread(name=str(i), target=utilsProcessNspList, args=(file_list_chunks[i], results[i]), daemon=True)
+        threads[i] = threading.Thread(name=str(i), target=utilsProcessNspList, args=(file_list_chunks, results), daemon=True)
         threads[i].start()
 
     # Wait until all threads finish doing their job.

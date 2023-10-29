@@ -15,3 +15,5 @@ __pycache__
 hactool*
 *.keys
 *.dat
+*.cert
+cdn2nsp.py
