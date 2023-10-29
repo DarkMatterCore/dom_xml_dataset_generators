@@ -1,16 +1,8 @@
 #!/usr/bin/env python3
 
-from __future__ import print_function
+from __future__ import annotations
 
-import os
-import sys
-import re
-import traceback
-import shutil
-import time
-
-import argparse
-from typing import Generator, List, Union, Tuple, Dict, Pattern, TYPE_CHECKING
+import os, sys, re, traceback, time, argparse
 
 MESSAGE_REGEX = re.compile(r"^\(Thread (\d+)\).+", flags=(re.MULTILINE | re.IGNORECASE))
 
@@ -20,31 +12,36 @@ def eprint(*args, **kwargs):
 def utilsGetPath(path_arg: str, fallback_path: str, is_file: bool, create: bool = False) -> str:
     path = os.path.abspath(os.path.expanduser(os.path.expandvars(path_arg if path_arg else fallback_path)))
 
-    if not is_file and create: os.makedirs(path, exist_ok=True)
+    if not is_file and create:
+        os.makedirs(path, exist_ok=True)
 
     if not os.path.exists(path) or (is_file and os.path.isdir(path)) or (not is_file and os.path.isfile(path)):
-        raise Exception("Error: '%s' points to an invalid file/directory." % (path))
+        raise Exception(f'Error: "{path}" points to an invalid file/directory.')
 
     return path
 
 def utilsProcessLogfile(logfile: str) -> None:
-    msg = {}
+    msg: dict[int, list[str]] = {}
 
     with open(logfile, 'r', encoding='utf-8') as fd:
-        for idx, line in enumerate(fd):
+        for _, line in enumerate(fd):
             # Get current line.
             cur_line = line.strip()
 
             # Parse current line.
             thrd_id = re.search(MESSAGE_REGEX, cur_line)
-            if not thrd_id: continue
+            if not thrd_id:
+                continue
 
-            thrd_id_str = thrd_id.group(1)
-            thrd_id = int(thrd_id_str)
+            thrd_id = int(thrd_id.group(1))
 
             # Get thread message list.
             thrd_msg = msg.get(thrd_id, [])
-            thrd_msg.append(cur_line[cur_line.find(thrd_id_str)+len(thrd_id_str)+2:])
+
+            # Update thread message list.
+            thrd_msg.append(cur_line.split(')', 1)[1].strip())
+
+            # Update message dictionary.
             msg.update({ thrd_id: thrd_msg })
 
     """import pprint
@@ -52,20 +49,21 @@ def utilsProcessLogfile(logfile: str) -> None:
     pp.pprint(msg)"""
 
     for k, v in msg.items():
-        print('Thread %d:\n' % (k))
+        print(f'Thread {k}:\n')
 
         for l, w in enumerate(v):
             space = '  '
 
-            if w[:10] == 'Processing':
+            if w.startswith('Processing'):
                 space *= 1
-                if l > 0: print('')
-            elif w[:7] == 'Parsing':
+                if l > 0:
+                    print('')
+            elif w.startswith('Parsing'):
                 space *= 2
             else:
                 space *= 3
 
-            print(space + '- ' + w)
+            print(f'{space}- {w}')
 
         print('')
 

@@ -735,7 +735,7 @@ class TitleInfo:
 
     def _extract_and_parse_nacp(self, nca_info: NcaInfo) -> None:
         # Extract files from Control NCA FS section 0.
-        proc = utilsRunHactoolnet('nca', [f'--section0dir', self._data_path, nca_info.path])
+        proc = utilsRunHactoolnet('nca', ['--section0dir', self._data_path, nca_info.path])
         if (not proc.stdout) or (proc.returncode != 0):
             eprint(f'(Thread {self._thrd_id}) Error: failed to extract Control NCA FS section 0. Skipping additional metadata retrieval for current title.')
             return
