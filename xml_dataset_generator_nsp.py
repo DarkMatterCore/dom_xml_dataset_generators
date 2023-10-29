@@ -1037,12 +1037,15 @@ def utilsGenerateXmlDataset(nsp_list: list[NspInfo]) -> None:
             # Generate dev status string.
             dev_status_lst = (['Demo'] if title_info.is_demo else [])
 
-            if title_info.type.value == Cnmt.ContentMetaType.patch.value:
-                dev_status_lst.append('Update')
-            elif title_info.type.value == Cnmt.ContentMetaType.add_on_content.value:
-                dev_status_lst.append('DLC')
-            elif title_info.type.value == Cnmt.ContentMetaType.data_patch.value:
-                dev_status_lst.append('DLC Update')
+            match title_info.type.value:
+                case Cnmt.ContentMetaType.patch.value:
+                    dev_status_lst.append('Update')
+                case Cnmt.ContentMetaType.add_on_content.value:
+                    dev_status_lst.append('DLC')
+                case Cnmt.ContentMetaType.data_patch.value:
+                    dev_status_lst.append('DLC Update')
+                case _:
+                    pass
 
             dev_status = (','.join(dev_status_lst) if dev_status_lst else '')
 
