@@ -22,6 +22,8 @@ from __future__ import annotations
 
 import os, sys, re, subprocess, shutil, hashlib, zlib, random, string, datetime, glob, threading, psutil, time, argparse
 
+from functools import total_ordering
+from enum import IntEnum
 from io import BytesIO
 from dataclasses import dataclass
 from typing import Generator, IO
@@ -82,8 +84,6 @@ HACTOOLNET_ALT_RIGHTS_ID_REGEX      = re.compile(r'Title key for rights ID ([0-9
 HACTOOL_DECRYPTED_TITLEKEY_REGEX    = re.compile(r'^Titlekey \(Decrypted\)(?: \(From CLI\))?\s+([0-9a-f]{32})$', flags=(re.MULTILINE | re.IGNORECASE))
 
 NCA_DISTRIBUTION_TYPE: str = 'download'
-
-OUTPUT_XML_NAME: str = 'nsw_nsp.xml'
 
 DOM_LANGUAGES: dict[str, str] = {
     'american_english':       'En-US',
@@ -1002,121 +1002,251 @@ class NspInfo:
         #print('nsp: __del__ called', flush=True)
         self._cleanup(True)
 
+class XmlDataset:
+    @total_ordering
+    class Type(IntEnum):
+        APPLICATION = 0,
+        UPDATE = 1,
+        DLC = 2,
+        DLC_UPDATE = 3,
+        COUNT = 4
+
+        @property
+        def normalized_name(self) -> str:
+            return self.name.lower().capitalize()
+
+        def __str__(self):
+            return f'{self.__class__.__name__}.{self.name}'
+
+        @classmethod
+        def _missing_(cls, value: str) -> XmlDataset.Type:
+            if type(value) is str:
+                value_up = value.upper()
+                if value_up in dir(cls):
+                    return cls[value_up]
+
+            raise ValueError('{value:r} is not a valid {cls.__name__}')
+
+        def __lt__(self, other: XmlDataset.Type) -> bool:
+            if self.__class__ is other.__class__:
+                return (self.value < other.value)
+
+            return NotImplemented
+
+    @property
+    def type(self) -> XmlDataset.Type:
+        return self._type
+
+    @property
+    def path(self) -> str:
+        return self._path
+
+    @property
+    def entry_count(self) -> int:
+        return self._entry_count
+
+    @property
+    def is_finalized(self) -> bool:
+        return self._is_finalized
+
+    def __init__(self, type: XmlDataset.Type) -> None:
+        self._type = type
+        self._path = os.path.join(OUTPUT_PATH, f'nswd_{self._type.name.lower()}.xml')
+        self._fd: IO = None
+        self._comment2 = ('' if EXCLUDE_COMMENT else DEFAULT_COMMENT2)
+        self._entry_count = 0
+        self._is_finalized = False
+
+    def add_entry(self, nsp_info: NspInfo, title_info: TitleInfo) -> None:
+        if self._is_finalized:
+            return
+
+        # Make sure we're dealing with a valid title type.
+        if (self._type == XmlDataset.Type.APPLICATION and title_info.type != Cnmt.ContentMetaType.application) or (self._type == XmlDataset.Type.UPDATE and title_info.type != Cnmt.ContentMetaType.patch) or (self._type == XmlDataset.Type.DLC and title_info.type != Cnmt.ContentMetaType.add_on_content) or (self._type == XmlDataset.Type.DLC_UPDATE and title_info.type != Cnmt.ContentMetaType.data_patch):
+            raise ValueError(f'Error: invalid content meta type value for {self._type.normalized_name} dataset (0x{title_info.type.value:02x}).')
+
+        # Make sure the XML file has been opened.
+        self._open_xml()
+
+        # Generate archive name string.
+        archive_name = self._get_archive_name(nsp_info, title_info)
+
+        # Generate languages string.
+        languages = self._get_languages(title_info)
+
+        # Generate version strings.
+        (version1, version2) = self._get_versions(title_info)
+
+        # Generate dev status string.
+        dev_status = self._get_dev_status(title_info)
+
+        # Generate XML entry.
+        title_str  = '  <game name="">\n'
+        title_str += f'    <archive name="{archive_name}" name_alt="" region="{DEFAULT_REGION}" languages="{languages}" langchecked="0" version1="{version1}" version2="{version2}" devstatus="{dev_status}" additional="eShop" special1="" special2="" gameid1="{title_info.id}" />\n'
+
+        if title_info.lang_entries or title_info.display_version:
+            title_str += '    <media>\n'
+
+            for lang_entry in title_info.lang_entries:
+                cap_lang_name = utilsCapitalizeString(lang_entry.lang.name)
+
+                if lang_entry.name:
+                    title_str += f'      <field name="Original Name (NACP, {cap_lang_name})" value="{html_escape(lang_entry.name)}" />\n'
+
+                if lang_entry.publisher:
+                    title_str += f'      <field name="Publisher (NACP, {cap_lang_name})" value="{html_escape(lang_entry.publisher)}" />\n'
+
+            if title_info.display_version:
+                title_str += f'      <field name="Display Version (NACP)" value="{html_escape(title_info.display_version)}" />\n'
+
+            title_str += '    </media>\n'
+
+        title_str += '    <source>\n'
+        title_str += f'      <details section="{DEFAULT_SECTION}" rominfo="" originalformat="NSP" d_date="{DEFAULT_DDATE}" d_date_info="{int(DDATE_PROVIDED)}" r_date="{DEFAULT_RDATE}" r_date_info="{int(RDATE_PROVIDED)}" dumper="{DEFAULT_DUMPER}" project="{DEFAULT_PROJECT}" tool="{DEFAULT_TOOL}" region="{DEFAULT_REGION}" origin="" comment1="" comment2="{self._comment2}" link1="" link2="" media_title="" />\n'
+        title_str += f'      <serials media_serial1="" media_serial2="" pcb_serial="" romchip_serial1="" romchip_serial2="" lockout_serial="" savechip_serial="" chip_serial="" box_serial="" mediastamp="" box_barcode="" digital_serial1="{title_info.id}" digital_serial2="" />\n'
+
+        tik = title_info.tik_info
+        etk = (tik.enc_titlekey if tik else None)
+        dtk = (tik.dec_titlekey if tik else None)
+
+        if not EXCLUDE_NSP:
+            # Add NSP information.
+            title_str += self._generate_xml_file_elem('', 'nsp', 'NSP', '', title_info.version, nsp_info.size, nsp_info.checksums, '')
+
+        for cnt in title_info.contents:
+            # Add current NCA information.
+            if cnt.rights_id and tik:
+                nca_note = f'[Passed verification with titlekey with SHA256 {tik.enc_titlekey.checksums.sha256} using hactoolnet v{HACTOOLNET_VERSION}]'
+            else:
+                nca_note = f'[Passed verification, no titlekey required, using hactoolnet v{HACTOOLNET_VERSION}]'
+
+            title_str += self._generate_xml_file_elem(cnt.filename, '', 'CDN', nca_note, title_info.version, cnt.size, cnt.checksums, utilsCapitalizeString(cnt.cnt_type))
+
+        if tik and (not EXCLUDE_TIK):
+            # Add ticket info.
+            title_str += self._generate_xml_file_elem(tik.filename, '', 'CDN', '', title_info.version, tik.size, tik.checksums, '')
+
+            # Add encrypted titlekey info.
+            title_str += self._generate_xml_file_elem(etk.filename, '', 'CDN', '', title_info.version, etk.size, etk.checksums, '')
+
+            # Add decrypted titlekey info.
+            title_str += self._generate_xml_file_elem(dtk.filename, '', 'CDN', '', title_info.version, dtk.size, dtk.checksums, '')
+
+        # Update title string.
+        title_str += '    </source>\n'
+        title_str += '  </game>\n'
+
+        # Write metadata.
+        self._fd.write(title_str)
+
+        # Update entry count.
+        self._entry_count += 1
+
+    def finalize(self) -> None:
+        if self._is_finalized:
+            return
+
+        if self._fd:
+            if self._entry_count > 0:
+                # Write XML footer.
+                self._fd.write(XML_FOOTER)
+
+            # Close XML file.
+            self._fd.close()
+
+            if self._entry_count <= 0:
+                # Delete XML file.
+                os.remove(self._path)
+
+        # Update flag.
+        self._is_finalized = True
+
+    def _open_xml(self) -> None:
+        if self._fd:
+            return
+
+        # Open output XML file.
+        self._fd = open(self._path, 'w', encoding='utf-8-sig')
+
+        # Write XML file header.
+        self._fd.write(XML_HEADER)
+
+    def _get_archive_name(self, nsp_info: NspInfo, title_info: TitleInfo) -> str:
+        if title_info.lang_entries:
+            # Default to the first NACP language entry we found.
+            archive_name = utilsNormalizeArchiveName(title_info.lang_entries[0].name)
+        else:
+            # Use the NSP filename (gross, I know, but it's either this or using an external database).
+            archive_name = utilsNormalizeArchiveName(re.split(r'[\[\(]', os.path.splitext(nsp_info.filename)[0], 1)[0])
+            if not archive_name:
+                # Fallback to just using the title ID.
+                archive_name = title_info.id
+
+        return archive_name
+
+    def _get_languages(self, title_info: TitleInfo) -> str:
+        return ('En' if not title_info.supported_dom_languages else ','.join(title_info.supported_dom_languages))
+
+    def _get_versions(self, title_info: TitleInfo) -> tuple[str, str]:
+        version1 = (f'v{title_info.version}' if (title_info.version > 0) else '')
+        version2 = (html_escape(f'v{title_info.display_version}') if (title_info.display_version and title_info.type != Cnmt.ContentMetaType.application) else '')
+        return (version1, version2)
+
+    def _get_dev_status(self, title_info: TitleInfo) -> str:
+        dev_status = (['Demo'] if title_info.is_demo else [])
+
+        match title_info.type:
+            case Cnmt.ContentMetaType.patch:
+                dev_status.append('Update')
+            case Cnmt.ContentMetaType.add_on_content:
+                dev_status.append('DLC')
+            case Cnmt.ContentMetaType.data_patch:
+                dev_status.append('DLC Update')
+            case _:
+                pass
+
+        return (','.join(dev_status) if dev_status else '')
+
+    def _generate_xml_file_elem(self, forcename: str, extension: str, format: str, note: str, version: int, size: int, checksums: Checksums, filter: str) -> str:
+        extension = (f' extension="{extension}" ' if extension else ' ')
+        note = (f' note="{note}" ' if note else ' ')
+        filter = (f' filter="{filter}" ' if filter else ' ')
+
+        return f'      <file forcename="{forcename}"{extension}format="{format}"{note}version="{version}" size="{size}" crc32="{checksums.crc32}" md5="{checksums.md5}" sha1="{checksums.sha1}" sha256="{checksums.sha256}"{filter}/>\n'
+
 def utilsGenerateXmlDataset(nsp_list: list[NspInfo]) -> None:
-    comment2_str = ('' if EXCLUDE_COMMENT else DEFAULT_COMMENT2)
+    xml_obj: list[XmlDataset] = []
 
-    # Open output XML file.
-    xml_path = os.path.join(OUTPUT_PATH, OUTPUT_XML_NAME)
-    xml_fd = open(xml_path, 'w', encoding='utf-8-sig')
+    type_dict: dict[int, int] = {
+        Cnmt.ContentMetaType.application.value: XmlDataset.Type.APPLICATION.value,
+        Cnmt.ContentMetaType.patch.value: XmlDataset.Type.UPDATE.value,
+        Cnmt.ContentMetaType.add_on_content.value: XmlDataset.Type.DLC.value,
+        Cnmt.ContentMetaType.data_patch.value: XmlDataset.Type.DLC_UPDATE.value
+    }
 
-    # Write XML file header.
-    xml_fd.write(XML_HEADER)
+    # Initialize our XmlDataset objects.
+    for i in range(XmlDataset.Type.COUNT.value):
+        cur_xml_obj = XmlDataset(XmlDataset.Type(i))
+        xml_obj.append(cur_xml_obj)
 
     # Process NSP info list.
     for nsp_info in nsp_list:
         # Process titles availables in current NSP.
         for title_info in nsp_info.titles:
-            # Generate archive name string.
-            if title_info.lang_entries:
-                # Default to the first NACP language entry we found.
-                archive_name = utilsNormalizeArchiveName(title_info.lang_entries[0].name)
-            else:
-                # Use the NSP filename (gross, I know, but it's either this or using an external database).
-                archive_name = utilsNormalizeArchiveName(re.split(r'[\[\(]', os.path.splitext(nsp_info.filename)[0], 1)[0])
-                if not archive_name:
-                    # Fallback to just using the title ID.
-                    archive_name = title_info.id
+            # Get XML object index based on the current title type.
+            idx = type_dict.get(title_info.type.value)
+            if idx is None:
+                raise ValueError(f'Error: invalid content meta type value (0x{title_info.type.value:02x}).')
 
-            # Generate languages string.
-            languages = ('En' if not title_info.supported_dom_languages else ','.join(title_info.supported_dom_languages))
+            # Add entry to XML object.
+            xml_obj[idx].add_entry(nsp_info, title_info)
 
-            # Generate version strings.
-            version1 = (f'v{title_info.version}' if (title_info.version > 0) else '')
-            version2 = (html_escape(f'v{title_info.display_version}') if (title_info.display_version and title_info.type.value != Cnmt.ContentMetaType.application.value) else '')
+    # Finalize all XML objects.
+    for cur_xml_obj in xml_obj:
+        cur_xml_obj.finalize()
 
-            # Generate dev status string.
-            dev_status_lst = (['Demo'] if title_info.is_demo else [])
-
-            match title_info.type.value:
-                case Cnmt.ContentMetaType.patch.value:
-                    dev_status_lst.append('Update')
-                case Cnmt.ContentMetaType.add_on_content.value:
-                    dev_status_lst.append('DLC')
-                case Cnmt.ContentMetaType.data_patch.value:
-                    dev_status_lst.append('DLC Update')
-                case _:
-                    pass
-
-            dev_status = (','.join(dev_status_lst) if dev_status_lst else '')
-
-            # Generate XML entry.
-            title_str  = '  <game name="">\n'
-            title_str += f'    <archive name="{archive_name}" name_alt="" region="{DEFAULT_REGION}" languages="{languages}" langchecked="0" version1="{version1}" version2="{version2}" devstatus="{dev_status}" additional="eShop" special1="" special2="" gameid1="{title_info.id}" />\n'
-
-            if title_info.lang_entries or title_info.display_version:
-                title_str += '    <media>\n'
-
-                for lang_entry in title_info.lang_entries:
-                    cap_lang_name = utilsCapitalizeString(lang_entry.lang.name)
-
-                    if lang_entry.name:
-                        title_str += f'      <field name="Original Name (NACP, {cap_lang_name})" value="{html_escape(lang_entry.name)}" />\n'
-
-                    if lang_entry.publisher:
-                        title_str += f'      <field name="Publisher (NACP, {cap_lang_name})" value="{html_escape(lang_entry.publisher)}" />\n'
-
-                if title_info.display_version:
-                    title_str += f'      <field name="Display Version (NACP)" value="{html_escape(title_info.display_version)}" />\n'
-
-                title_str += '    </media>\n'
-
-            title_str += '    <source>\n'
-            title_str += f'      <details section="{DEFAULT_SECTION}" rominfo="" originalformat="NSP" d_date="{DEFAULT_DDATE}" d_date_info="{int(DDATE_PROVIDED)}" r_date="{DEFAULT_RDATE}" r_date_info="{int(RDATE_PROVIDED)}" dumper="{DEFAULT_DUMPER}" project="{DEFAULT_PROJECT}" tool="{DEFAULT_TOOL}" region="{DEFAULT_REGION}" origin="" comment1="" comment2="{comment2_str}" link1="" link2="" media_title="" />\n'
-            title_str += f'      <serials media_serial1="" media_serial2="" pcb_serial="" romchip_serial1="" romchip_serial2="" lockout_serial="" savechip_serial="" chip_serial="" box_serial="" mediastamp="" box_barcode="" digital_serial1="{title_info.id}" digital_serial2="" />\n'
-
-            # Generate ROM entries.
-            tik = title_info.tik_info
-
-            if not EXCLUDE_NSP:
-                # Add NSP information.
-                title_str += f'      <file forcename="" extension="nsp" format="NSP" version="{title_info.version}" size="{nsp_info.size}" crc32="{nsp_info.checksums.crc32}" md5="{nsp_info.checksums.md5}" sha1="{nsp_info.checksums.sha1}" sha256="{nsp_info.checksums.sha256}" />\n'
-
-            for cnt in title_info.contents:
-                # Add current NCA information.
-                if cnt.rights_id and tik:
-                    nca_note = f'[Passed verification with titlekey with SHA256 {tik.enc_titlekey.checksums.sha256} using hactoolnet v{HACTOOLNET_VERSION}]'
-                else:
-                    nca_note = f'[Passed verification, no titlekey required, using hactoolnet v{HACTOOLNET_VERSION}]'
-
-                title_str += f'      <file forcename="{cnt.filename}" format="CDN" note="{nca_note}" version="{title_info.version}" size="{cnt.size}" crc32="{cnt.checksums.crc32}" md5="{cnt.checksums.md5}" sha1="{cnt.checksums.sha1}" sha256="{cnt.checksums.sha256}" filter="{utilsCapitalizeString(cnt.cnt_type)}" />\n'
-
-            if tik:
-                if not EXCLUDE_TIK:
-                    # Add ticket info.
-                    title_str += f'      <file forcename="{tik.filename}" format="CDN" version="{title_info.version}" size="{tik.size}" crc32="{tik.checksums.crc32}" md5="{tik.checksums.md5}" sha1="{tik.checksums.sha1}" sha256="{tik.checksums.sha256}" />\n'
-
-                # Add encrypted titlekey info.
-                etk = tik.enc_titlekey
-                title_str += f'      <file forcename="{etk.filename}" format="CDN" version="{title_info.version}" size="{etk.size}" crc32="{etk.checksums.crc32}" md5="{etk.checksums.md5}" sha1="{etk.checksums.sha1}" sha256="{etk.checksums.sha256}" />\n'
-
-                # Add decrypted titlekey info.
-                dtk = tik.dec_titlekey
-                title_str += f'      <file forcename="{dtk.filename}" format="CDN" version="{title_info.version}" size="{dtk.size}" crc32="{dtk.checksums.crc32}" md5="{dtk.checksums.md5}" sha1="{dtk.checksums.sha1}" sha256="{dtk.checksums.sha256}" />\n'
-
-            # Update title string.
-            title_str += '    </source>\n'
-            title_str += '  </game>\n'
-
-            # Write metadata.
-            xml_fd.write(title_str)
-
-    # Write XML footer.
-    xml_fd.write(XML_FOOTER)
-
-    # Close XML file.
-    xml_fd.close()
-
-    print(f'\nSuccessfully saved output XML dataset to "{xml_path}".', flush=True)
+        if cur_xml_obj.entry_count > 0:
+            print(f'\nSuccessfully wrote {cur_xml_obj.entry_count} {cur_xml_obj.type.normalized_name} {"entries" if cur_xml_obj.entry_count > 1 else "entry"} to "{cur_xml_obj.path}".', flush=True)
 
 def utilsProcessNspList(file_list: FileList, results: list[NspInfo]) -> None:
     thrd_id = int(threading.current_thread().name)
