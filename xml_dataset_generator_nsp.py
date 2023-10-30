@@ -20,13 +20,13 @@
 
 from __future__ import annotations
 
-import os, sys, re, subprocess, shutil, hashlib, zlib, random, string, datetime, glob, threading, psutil, time, argparse
+import os, sys, re, subprocess, shutil, hashlib, zlib, random, string, datetime, glob, threading, psutil, time, argparse, io
 
 from functools import total_ordering
 from enum import IntEnum
 from io import BytesIO
 from dataclasses import dataclass
-from typing import Generator, IO
+from typing import Generator, IO, Any
 from html import escape as html_escape
 
 from structs.cnmt import Cnmt
@@ -154,6 +154,14 @@ def utilsGetListChunks(lst: list, n: int) -> Generator:
     for i in range(0, n):
         yield lst[i::n]
 
+def utilsReconfigureTerminalOutput() -> None:
+    if sys.version_info >= (3, 7):
+        if isinstance(sys.stdout, io.TextIOWrapper):
+            sys.stdout.reconfigure(encoding='utf-8')
+
+        if isinstance(sys.stderr, io.TextIOWrapper):
+            sys.stderr.reconfigure(encoding='utf-8')
+
 def utilsRunGit(args: list[str]) -> subprocess.CompletedProcess[str]:
     return subprocess.run(['git', '-C', SCRIPT_DIR] + args, capture_output=True, encoding='utf-8')
 
@@ -233,8 +241,8 @@ class Checksums:
         return checksums
 
     @classmethod
-    def from_string(cls, data: str) -> Checksums:
-        return cls.from_bytes(bytes(data))
+    def from_string(cls, data: str, encoding: str = 'utf-8') -> Checksums:
+        return cls.from_bytes(data.encode(encoding))
 
     def __init__(self, fd: IO) -> None:
         # Calculate checksums for the provided filepath.
@@ -299,13 +307,13 @@ class NcaInfo:
         return self._rights_id
 
     @property
-    def checksums(self) -> Checksums:
+    def checksums(self) -> Checksums | None:
         return self._checksums
 
     @property
     def cnt_id(self) -> str:
         # Content IDs are just the first half of the NCA's SHA-256 checksum.
-        return self._checksums.sha256[:32]
+        return (self._checksums.sha256[:32] if self._checksums else '')
 
     def __init__(self, nca_path: str, nca_size: int, thrd_id: int, tmp_titlekeys_path: str, expected_cnt_type: str = '') -> None:
         # Populate class variables.
@@ -336,7 +344,7 @@ class NcaInfo:
         self._rights_id = ''
         self._valid = False
 
-        self._checksums: Checksums = None
+        self._checksums: Checksums | None = None
 
     def _get_hactoolnet_output(self) -> subprocess.CompletedProcess[str]:
         # Run hactoolnet.
@@ -389,7 +397,7 @@ class TitleKeyInfo:
     value: str = ''
     raw_value: bytes = b''
     size: int = 16
-    checksums: Checksums = None
+    checksums: Checksums | None = None
 
     def __init__(self, titlekey: str, rights_id: str, data_path: str, is_decrypted: bool) -> None:
         # Populate properties.
@@ -433,11 +441,11 @@ class TikInfo:
         return self._tik_checksums
 
     @property
-    def enc_titlekey(self) -> TitleKeyInfo:
+    def enc_titlekey(self) -> TitleKeyInfo | None:
         return self._enc_titlekey
 
     @property
-    def dec_titlekey(self) -> TitleKeyInfo:
+    def dec_titlekey(self) -> TitleKeyInfo | None:
         return self._dec_titlekey
 
     def __init__(self, rights_id: str, data_path: str, nca_path: str, thrd_id: int) -> None:
@@ -461,8 +469,8 @@ class TikInfo:
         self._tik_size = os.path.getsize(self._tik_path)
         self._tik_checksums: Checksums = Checksums.from_path(self._tik_path)
 
-        self._enc_titlekey: TitleKeyInfo = None
-        self._dec_titlekey: TitleKeyInfo = None
+        self._enc_titlekey: TitleKeyInfo | None = None
+        self._dec_titlekey: TitleKeyInfo | None = None
 
     def _get_encrypted_titlekey(self) -> None:
         # Make sure the ticket file exists.
@@ -484,10 +492,13 @@ class TikInfo:
         tik.close()
 
     def _get_decrypted_titlekey(self) -> None:
+        if not self._enc_titlekey:
+            return
+
         # We'll actually use old hactool here.
         proc = utilsRunHactool('nca', [f'--titlekey={self._enc_titlekey.value}', self._nca_path])
+        hactool_stderr = proc.stderr.strip()
         if (not proc.stdout) or (proc.returncode != 0):
-            hactool_stderr = proc.stderr.strip()
             raise self.Exception(f'(Thread {self._thrd_id}) Failed to get decrypted titlekey{f" ({hactool_stderr})" if hactool_stderr else ""}.')
 
         dec_titlekey = re.search(HACTOOL_DECRYPTED_TITLEKEY_REGEX, proc.stdout)
@@ -502,7 +513,7 @@ class TikInfo:
 class NacpLanguageEntry:
     name: str = ''
     publisher: str = ''
-    lang: Nacp.Language = None
+    lang: Nacp.Language | None = None
 
     def __init__(self, nacp_title: Nacp.Title, lang: int) -> None:
         self.name = nacp_title.name.strip()
@@ -520,10 +531,10 @@ class TitleInfo:
 
     @property
     def version(self) -> int:
-        return self._version
+        return self._title_version
 
     @property
-    def type(self) -> Cnmt.ContentMetaType:
+    def type(self) -> Cnmt.ContentMetaType | None:
         return self._title_type
 
     @property
@@ -531,7 +542,7 @@ class TitleInfo:
         return self._rights_id
 
     @property
-    def tik_info(self) -> TikInfo:
+    def tik_info(self) -> TikInfo | None:
         return self._tik_info
 
     @property
@@ -575,19 +586,19 @@ class TitleInfo:
         self._thrd_id = thrd_id
 
         self._cnmt_path = ''
-        self._cnmt: Cnmt = None
+        self._cnmt: Cnmt | None = None
 
         self._nacp_path = ''
-        self._nacp: Nacp = None
+        self._nacp: Nacp | None = None
 
         # Retrieved from the CNMT in the Meta NCA. Placed here for convenience.
         self._title_id = ''
-        self._version = 0
-        self._title_type: Cnmt.ContentMetaType = None
+        self._title_version = 0
+        self._title_type: Cnmt.ContentMetaType | None = None
 
         # Titlekey crypto related fields.
         self._rights_id = ''
-        self._tik_info: TikInfo = None
+        self._tik_info: TikInfo | None = None
 
         # Retrieved from the NACP in the Control NCA. Placed here for convenience.
         self._lang_entries: list[NacpLanguageEntry] = []
@@ -621,7 +632,11 @@ class TitleInfo:
 
         # Update class properties.
         self._title_id = f'{self._cnmt.header.title_id:016x}'
-        self._version = self._cnmt.header.version.raw_version
+
+        titlever = self._cnmt.header.version.raw_version
+        if isinstance(titlever, int):
+            self._title_version = titlever
+
         self._title_type = Cnmt.ContentMetaType(self._cnmt.header.content_meta_type)
 
         # Make sure we're dealing with a supported title type.
@@ -629,6 +644,9 @@ class TitleInfo:
             raise self.Exception(f'(Thread {self._thrd_id}) Error: invalid content meta type value (0x{self._title_type.value:02x}). Skipping current title.')
 
     def _build_content_list(self) -> None:
+        if not self._cnmt:
+            return
+
         # Iterate over all content records.
         for i in range(self._cnmt.header.content_count):
             # Get current content info entry.
@@ -712,7 +730,7 @@ class TitleInfo:
 
         # Update temporary titlekeys file for this thread.
         with open(self._tmp_titlekeys_path, 'a', encoding='utf-8') as fd:
-            fd.write(f'{self._rights_id} = {self._tik_info.enc_titlekey.value}\n')
+            fd.write(f'{self._rights_id} = {self._tik_info.enc_titlekey.value if self._tik_info.enc_titlekey else ""}\n')
 
     def _extract_and_parse_nacp(self, nca_info: NcaInfo) -> None:
         # Extract files from Control NCA FS section 0.
@@ -750,7 +768,7 @@ class TitleInfo:
             self._lang_entries.append(nacp_lang_entry)
 
             # Update supported DoM languages list.
-            dom_lang = DOM_LANGUAGES.get(nacp_lang_entry.lang.name, '')
+            dom_lang = DOM_LANGUAGES.get(nacp_lang_entry.lang.name if nacp_lang_entry.lang else '', '')
             if dom_lang:
                 self._supported_dom_languages.append(dom_lang)
 
@@ -810,7 +828,7 @@ class NspInfo:
         return self._is_nsz
 
     @property
-    def checksums(self) -> Checksums:
+    def checksums(self) -> Checksums | None:
         return self._checksums
 
     @property
@@ -852,7 +870,7 @@ class NspInfo:
         self._tmp_titlekeys_path = tmp_titlekeys_path
         self._thrd_id = thrd_id
 
-        self._checksums: Checksums = None
+        self._checksums: Checksums | None = None
 
         self._ext_nsp_path = ''
 
@@ -1003,17 +1021,16 @@ class XmlDataset:
 
         @classmethod
         def _missing_(cls, value: str) -> XmlDataset.Type:
-            if type(value) is str:
+            if isinstance(value, str):
                 value_up = value.upper()
                 if value_up in dir(cls):
                     return cls[value_up]
 
-            raise ValueError('{value:r} is not a valid {cls.__name__}')
+            raise ValueError(f'{value:r} is not a valid {cls.__name__}')
 
         def __lt__(self, other: XmlDataset.Type) -> bool:
             if self.__class__ is other.__class__:
                 return (self.value < other.value)
-
             return NotImplemented
 
     @property
@@ -1035,13 +1052,13 @@ class XmlDataset:
     def __init__(self, type: XmlDataset.Type) -> None:
         self._type = type
         self._path = os.path.join(OUTPUT_PATH, f'nswd_{self._type.name.lower()}.xml')
-        self._fd: IO = None
+        self._fd: IO | None = None
         self._comment2 = ('' if EXCLUDE_COMMENT else DEFAULT_COMMENT2)
         self._entry_count = 0
         self._is_finalized = False
 
     def add_entry(self, nsp_info: NspInfo, title_info: TitleInfo) -> None:
-        if self._is_finalized:
+        if self._is_finalized or (not nsp_info) or (not nsp_info.checksums) or (not title_info) or (not title_info.type):
             return
 
         # Make sure we're dealing with a valid title type.
@@ -1071,6 +1088,9 @@ class XmlDataset:
             title_str += '    <media>\n'
 
             for lang_entry in title_info.lang_entries:
+                if not lang_entry.lang:
+                    continue
+
                 cap_lang_name = utilsCapitalizeString(lang_entry.lang.name)
 
                 if lang_entry.name:
@@ -1088,56 +1108,58 @@ class XmlDataset:
         title_str += f'      <details section="{DEFAULT_SECTION}" rominfo="" originalformat="NSP" d_date="{DEFAULT_DDATE}" d_date_info="{int(DDATE_PROVIDED)}" r_date="{DEFAULT_RDATE}" r_date_info="{int(RDATE_PROVIDED)}" dumper="{DEFAULT_DUMPER}" project="{DEFAULT_PROJECT}" tool="{DEFAULT_TOOL}" region="{DEFAULT_REGION}" origin="" comment1="" comment2="{self._comment2}" link1="" link2="" media_title="" />\n'
         title_str += f'      <serials media_serial1="" media_serial2="" pcb_serial="" romchip_serial1="" romchip_serial2="" lockout_serial="" savechip_serial="" chip_serial="" box_serial="" mediastamp="" box_barcode="" digital_serial1="{title_info.id}" digital_serial2="" />\n'
 
-        tik = title_info.tik_info
-        etk = (tik.enc_titlekey if tik else None)
-        dtk = (tik.dec_titlekey if tik else None)
-
         if not EXCLUDE_NSP:
             # Add NSP information.
             title_str += self._generate_xml_file_elem('', 'nsp', 'NSP', '', title_info.version, nsp_info.size, nsp_info.checksums, '')
 
         for cnt in title_info.contents:
+            if not cnt.checksums:
+                continue
+
             # Add current NCA information.
-            if cnt.rights_id and tik:
-                nca_note = f'[Passed verification with titlekey with SHA256 {tik.enc_titlekey.checksums.sha256} using hactoolnet v{HACTOOLNET_VERSION}]'
+            if cnt.rights_id and title_info.tik_info and title_info.tik_info.enc_titlekey and title_info.tik_info.enc_titlekey.checksums:
+                nca_note = f'[Passed verification with titlekey with SHA256 {title_info.tik_info.enc_titlekey.checksums.sha256} using hactoolnet v{HACTOOLNET_VERSION}]'
             else:
                 nca_note = f'[Passed verification, no titlekey required, using hactoolnet v{HACTOOLNET_VERSION}]'
 
             title_str += self._generate_xml_file_elem(cnt.filename, '', 'CDN', nca_note, title_info.version, cnt.size, cnt.checksums, utilsCapitalizeString(cnt.cnt_type))
 
-        if tik and (not EXCLUDE_TIK):
+        if (not EXCLUDE_TIK) and title_info.tik_info:
             # Add ticket info.
-            title_str += self._generate_xml_file_elem(tik.filename, '', 'CDN', '', title_info.version, tik.size, tik.checksums, '')
+            title_str += self._generate_xml_file_elem(title_info.tik_info.filename, '', 'CDN', '', title_info.version, title_info.tik_info.size, title_info.tik_info.checksums, '')
 
             # Add encrypted titlekey info.
-            title_str += self._generate_xml_file_elem(etk.filename, '', 'CDN', '', title_info.version, etk.size, etk.checksums, '')
+            if title_info.tik_info.enc_titlekey and title_info.tik_info.enc_titlekey.checksums:
+                title_str += self._generate_xml_file_elem(title_info.tik_info.enc_titlekey.filename, '', 'CDN', '', title_info.version, title_info.tik_info.enc_titlekey.size, title_info.tik_info.enc_titlekey.checksums, '')
 
             # Add decrypted titlekey info.
-            title_str += self._generate_xml_file_elem(dtk.filename, '', 'CDN', '', title_info.version, dtk.size, dtk.checksums, '')
+            if title_info.tik_info.dec_titlekey and title_info.tik_info.dec_titlekey.checksums:
+                title_str += self._generate_xml_file_elem(title_info.tik_info.dec_titlekey.filename, '', 'CDN', '', title_info.version, title_info.tik_info.dec_titlekey.size, title_info.tik_info.dec_titlekey.checksums, '')
 
         # Update title string.
         title_str += '    </source>\n'
         title_str += '  </game>\n'
 
         # Write metadata.
-        self._fd.write(title_str)
+        if self._fd:
+            self._fd.write(title_str)
 
         # Update entry count.
         self._entry_count += 1
 
-    def finalize(self) -> None:
+    def finalize(self, force_deletion: bool = False) -> None:
         if self._is_finalized:
             return
 
         if self._fd:
-            if self._entry_count > 0:
+            if (self._entry_count > 0) and (not force_deletion):
                 # Write XML footer.
                 self._fd.write(XML_FOOTER)
 
             # Close XML file.
             self._fd.close()
 
-            if self._entry_count <= 0:
+            if (self._entry_count <= 0) or force_deletion:
                 # Delete XML file.
                 os.remove(self._path)
 
@@ -1169,10 +1191,10 @@ class XmlDataset:
 
     def _normalize_archive_name(self, name: str) -> str:
         # Remove illegal filesystem characters.
-        out = re.sub(r'[\\/\*\?\"<>\|]', '', name)
+        out = re.sub(r'[\\/*?"<>|]', '', name)
 
         # Replace colons with dashes.
-        out = out.replace(':', ' - ')
+        out = re.sub(r'\s*:\s*', ' - ', out)
 
         # Replace consecutive whitespaces with a single one.
         out = ' '.join(out.split()).strip()
@@ -1210,6 +1232,14 @@ class XmlDataset:
 
         return f'      <file forcename="{forcename}"{extension}format="{format}"{note}version="{version}" size="{size}" crc32="{checksums.crc32}" md5="{checksums.md5}" sha1="{checksums.sha1}" sha256="{checksums.sha256}"{filter}/>\n'
 
+    def __exit__(self) -> None:
+        #print('xml: __exit__ called', flush=True)
+        self.finalize(True)
+
+    def __del__(self) -> None:
+        #print('xml: __del__ called', flush=True)
+        self.finalize(True)
+
 def utilsGenerateXmlDataset(nsp_list: list[NspInfo]) -> None:
     xml_obj: list[XmlDataset] = []
 
@@ -1229,8 +1259,11 @@ def utilsGenerateXmlDataset(nsp_list: list[NspInfo]) -> None:
     for nsp_info in nsp_list:
         # Process titles availables in current NSP.
         for title_info in nsp_info.titles:
+            if not title_info.type:
+                continue
+
             # Get XML object index based on the current title type.
-            idx = type_dict.get(title_info.type.value)
+            idx = type_dict.get(title_info.type.value, None)
             if idx is None:
                 raise ValueError(f'Error: invalid content meta type value (0x{title_info.type.value:02x}).')
 
@@ -1312,12 +1345,13 @@ def utilsProcessNspDirectory() -> None:
     file_list_chunks: list[FileList] = list(filter(None, list(utilsGetListChunks(file_list, NUM_THREADS))))
     num_threads = len(file_list_chunks)
 
-    threads: list[threading.Thread] = [None] * num_threads
-    results: list[list[NspInfo]] = [None] * num_threads
+    threads: list[threading.Thread] = []
+    results: list[list[NspInfo]] = [[]] * num_threads
 
     for i in range(num_threads):
-        threads[i] = threading.Thread(name=str(i), target=utilsProcessNspList, args=(file_list_chunks, results), daemon=True)
-        threads[i].start()
+        cur_thread = threading.Thread(name=str(i), target=utilsProcessNspList, args=(file_list_chunks, results), daemon=True)
+        cur_thread.start()
+        threads.append(cur_thread)
 
     # Wait until all threads finish doing their job.
     while len(threading.enumerate()) > 1:
@@ -1348,9 +1382,8 @@ def main() -> int:
     # Get git commit information.
     utilsGetGitRepositoryInfo()
 
-    # Reconfigure console output.
-    sys.stdout.reconfigure(encoding='utf-8')
-    sys.stderr.reconfigure(encoding='utf-8')
+    # Reconfigure terminal output whenever possible.
+    utilsReconfigureTerminalOutput()
 
     parser = argparse.ArgumentParser(description='Generate a XML dataset from Nintendo Submission Package (NSP) files.')
 
