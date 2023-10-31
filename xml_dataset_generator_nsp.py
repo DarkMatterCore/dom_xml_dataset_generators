@@ -20,13 +20,13 @@
 
 from __future__ import annotations
 
-import os, sys, re, subprocess, shutil, hashlib, zlib, random, string, datetime, glob, threading, psutil, time, argparse, io
+import os, sys, re, subprocess, shutil, hashlib, zlib, random, string, datetime, glob, threading, psutil, time, argparse, io, traceback
 
 from functools import total_ordering
 from enum import IntEnum
 from io import BytesIO
 from dataclasses import dataclass
-from typing import Generator, IO, Any
+from typing import Generator, IO
 from html import escape as html_escape
 
 from structs.cnmt import Cnmt
@@ -130,7 +130,7 @@ def utilsGetPath(path_arg: str, fallback_path: str, is_file: bool, create: bool 
         os.makedirs(path, exist_ok=True)
 
     if not os.path.exists(path) or (is_file and os.path.isdir(path)) or (not is_file and os.path.isfile(path)):
-        raise Exception(f'Error: "{path}" points to an invalid file/directory.')
+        raise ValueError(f'Error: "{path}" points to an invalid file/directory.')
 
     return path
 
@@ -171,21 +171,21 @@ def utilsGetGitRepositoryInfo() -> None:
     # Get git branch.
     proc = utilsRunGit(['rev-parse', '--abbrev-ref', 'HEAD'])
     if (not proc.stdout) or (proc.returncode != 0):
-        raise Exception('Failed to run git! (branch).')
+        raise ValueError('Failed to run git! (branch).')
 
     GIT_BRANCH = proc.stdout.strip()
 
     # Get git commit.
     proc = utilsRunGit(['rev-parse', '--short', 'HEAD'])
     if (not proc.stdout) or (proc.returncode != 0):
-        raise Exception('Failed to run git! (commit).')
+        raise ValueError('Failed to run git! (commit).')
 
     GIT_COMMIT = proc.stdout.strip()
 
     # Generate git revision string.
     proc = utilsRunGit(['status', '--porcelain'])
     if proc.returncode != 0:
-        raise Exception('Failed to run git! (porcelain).')
+        raise ValueError('Failed to run git! (porcelain).')
 
     GIT_REV = f'{GIT_BRANCH}-{GIT_COMMIT}{"-dirty" if proc.stdout.strip() else ""}'
 
@@ -201,7 +201,7 @@ def utilsGetHactoolnetVersion() -> None:
         HACTOOLNET_VERSION = (version.group(1) if version else '')
 
     if not HACTOOLNET_VERSION:
-        raise Exception('Failed to get hactoolnet version!')
+        raise ValueError('Failed to get hactoolnet version!')
 
 def utilsRunHactoolAtPath(tool_path: str, type: str, args: list[str]) -> subprocess.CompletedProcess[str]:
     tool_args = [tool_path, '-t', type, '-k', KEYS_PATH, '--disablekeywarns'] + args
@@ -657,7 +657,7 @@ class TitleInfo:
             nca_path = os.path.join(self._data_path, nca_filename)
             cnt_type = Cnmt.ContentType(packaged_content_info.info.type).name
 
-            print(f'(Thread {self._thrd_id}) Parsing {utilsCapitalizeString(cnt_type, " ")} NCA: "{nca_filename}".', flush=True)
+            print(f'(Thread {self._thrd_id}) Parsing {utilsCapitalizeString(cnt_type, " ")} NCA #{packaged_content_info.info.id_offset}: "{nca_filename}".', flush=True)
 
             # Check if this NCA actually exists. Don't proceed any further with the current title if this NCA isn't available.
             # We don't really care about missing DeltaFragment NCAs, though.
@@ -1339,7 +1339,7 @@ def utilsProcessNspDirectory() -> None:
     # Get NSP/NSZ file list.
     file_list = utilsGetNspFileList(NSP_PATH)
     if not file_list:
-        raise Exception('Error: input directory holds no NSP/NSZ files.')
+        raise FileNotFoundError('Error: input directory holds no NSP/NSZ files.')
 
     # Create processing threads.
     file_list_chunks: list[FileList] = list(filter(None, list(utilsGetListChunks(file_list, NUM_THREADS))))
@@ -1363,7 +1363,7 @@ def utilsProcessNspDirectory() -> None:
 
     # Check if we were able to populate our NSP list.
     if not nsp_list:
-        raise Exception('Error: failed to process any NSP files.')
+        raise ValueError('Error: failed to process any NSP files.')
 
     # Generate output XML dataset.
     utilsGenerateXmlDataset(nsp_list)
@@ -1439,7 +1439,7 @@ def main() -> int:
 
     # Check if nsz has been installed.
     if not shutil.which('nsz'):
-        raise Exception('Error: "nsz" package unavailable.')
+        raise ValueError('Error: "nsz" package unavailable.')
 
     # Copy keys file (required by nsz since it offers no way to provide a keys file path).
     utilsCopyKeysFile()
@@ -1457,8 +1457,10 @@ if __name__ == '__main__':
     except KeyboardInterrupt:
         time.sleep(0.2)
         eprint('\nScript interrupted.')
-    except Exception as e:
-        print('\n' + str(e))
+    except (ValueError, FileNotFoundError) as e:
+        print(str(e))
+    except Exception:
+        traceback.print_exc()
 
     try:
         sys.exit(ret)
