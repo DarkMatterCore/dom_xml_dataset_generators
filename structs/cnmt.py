@@ -695,9 +695,7 @@ class Cnmt(KaitaiStruct):
         if hasattr(self, '_m_extended_data_size'):
             return self._m_extended_data_size
 
-        if self._root.header.extended_header_size > 0:
-            self._m_extended_data_size = (self.extended_header.extended_data_size if self._root.header.content_meta_type == Cnmt.ContentMetaType.system_update else (self.extended_header.extended_data_size if self._root.header.content_meta_type == Cnmt.ContentMetaType.patch else (self.extended_header.extended_data_size if self._root.header.content_meta_type == Cnmt.ContentMetaType.delta else (self.extended_header.extended_data_size if self._root.header.content_meta_type == Cnmt.ContentMetaType.data_patch else 0))))
-
+        self._m_extended_data_size = (self.extended_header.extended_data_size if self._root.header.content_meta_type == Cnmt.ContentMetaType.system_update else (self.extended_header.extended_data_size if self._root.header.content_meta_type == Cnmt.ContentMetaType.patch else (self.extended_header.extended_data_size if self._root.header.content_meta_type == Cnmt.ContentMetaType.delta else (self.extended_header.extended_data_size if self._root.header.content_meta_type == Cnmt.ContentMetaType.data_patch else 0))))
         return getattr(self, '_m_extended_data_size', None)
 
 
