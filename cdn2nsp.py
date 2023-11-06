@@ -40,7 +40,6 @@ INITIAL_DIR: str = (CWD if CWD != SCRIPT_DIR else SCRIPT_DIR)
 MAX_CPU_THREAD_COUNT: int = psutil.cpu_count()
 
 CDN_PATH:        str = os.path.join('.', 'cdn')
-HACTOOL_PATH:    str = os.path.join('.', ('hactool.exe' if os.name == 'nt' else 'hactool'))
 HACTOOLNET_PATH: str = os.path.join('.', ('hactoolnet.exe' if os.name == 'nt' else 'hactoolnet'))
 KEYS_PATH:       str = os.path.join('~', '.switch', 'prod.keys')
 CERT_PATH:       str = os.path.join('.', 'common.cert')
@@ -55,8 +54,7 @@ HACTOOLNET_VERIFICATION_FAIL_REGEX  = re.compile(r'\(FAIL\)', flags=(re.MULTILIN
 HACTOOLNET_SAVING_REGEX             = re.compile(r'^section\d+:/(.+\.cnmt)$', flags=(re.MULTILINE | re.IGNORECASE))
 HACTOOLNET_MISSING_TITLEKEY_REGEX   = re.compile(r'Missing NCA title key', flags=(re.MULTILINE | re.IGNORECASE))
 HACTOOLNET_ALT_RIGHTS_ID_REGEX      = re.compile(r'Title key for rights ID ([0-9a-f]{32})$', flags=(re.MULTILINE | re.IGNORECASE))
-
-HACTOOL_DECRYPTED_TITLEKEY_REGEX    = re.compile(r'^Titlekey \(Decrypted\)(?: \(From CLI\))?\s+([0-9a-f]{32})$', flags=(re.MULTILINE | re.IGNORECASE))
+HACTOOLNET_DECRYPTED_TITLEKEY_REGEX = re.compile(r'^Titlekey \(Decrypted\)(?: \(From CLI\))?:?\s+([0-9a-f]{32})$', flags=(re.MULTILINE | re.IGNORECASE))
 
 NCA_DISTRIBUTION_TYPE: str = 'download'
 
@@ -111,15 +109,9 @@ def utilsReconfigureTerminalOutput() -> None:
         if isinstance(sys.stderr, io.TextIOWrapper):
             sys.stderr.reconfigure(encoding='utf-8')
 
-def utilsRunHactoolAtPath(tool_path: str, type: str, args: list[str]) -> subprocess.CompletedProcess[str]:
-    tool_args = [tool_path, '-t', type, '-k', KEYS_PATH, '--disablekeywarns'] + args
-    return subprocess.run(tool_args, capture_output=True, encoding='utf-8')
-
-def utilsRunHactool(type: str, args: list[str]) -> subprocess.CompletedProcess[str]:
-    return utilsRunHactoolAtPath(HACTOOL_PATH, type, args)
-
 def utilsRunHactoolnet(type: str, args: list[str]) -> subprocess.CompletedProcess[str]:
-    return utilsRunHactoolAtPath(HACTOOLNET_PATH, type, args)
+    args = [HACTOOLNET_PATH, '-t', type, '-k', KEYS_PATH, '--disablekeywarns'] + args
+    return subprocess.run(args, capture_output=True, encoding='utf-8')
 
 def utilsLocateCdnFile(base_path: str, filename: str, size: int = -1) -> str:
     # Check if we can find the requested file at the provided base path.
@@ -232,9 +224,9 @@ class NcaInfo:
         # Content IDs are just the first half of the NCA's SHA-256 checksum.
         return self._sha256[:32]
 
-    def __init__(self, nca_path: str, nca_size: int, tmp_titlekeys_path: str = '', thrd_id: int = -1, expected_cnt_type: str = '') -> None:
+    def __init__(self, nca_path: str, nca_size: int, enc_titlekey: str = '', thrd_id: int = -1, expected_cnt_type: str = '') -> None:
         # Populate class variables.
-        self._populate_vars(nca_path, nca_size, tmp_titlekeys_path, thrd_id, expected_cnt_type)
+        self._populate_vars(nca_path, nca_size, enc_titlekey, thrd_id, expected_cnt_type)
 
         # Run hactoolnet.
         proc = self._get_hactoolnet_output()
@@ -257,13 +249,13 @@ class NcaInfo:
             return (self._sha256 == other.sha256)
         return NotImplemented
 
-    def _populate_vars(self, nca_path: str, nca_size: int, tmp_titlekeys_path: str, thrd_id: int, expected_cnt_type: str) -> None:
+    def _populate_vars(self, nca_path: str, nca_size: int, enc_titlekey: str, thrd_id: int, expected_cnt_type: str) -> None:
         self._nca_path = nca_path
         self._nca_size = nca_size
         self._nca_filename = os.path.basename(self._nca_path)
 
+        self._enc_titlekey = enc_titlekey
         self._thrd_id = thrd_id
-        self._tmp_titlekeys_path = tmp_titlekeys_path
 
         self._expected_cnt_type = expected_cnt_type.lower()
 
@@ -277,7 +269,12 @@ class NcaInfo:
 
     def _get_hactoolnet_output(self) -> subprocess.CompletedProcess[str]:
         # Run hactoolnet.
-        proc = utilsRunHactoolnet('nca', ['--titlekeys', self._tmp_titlekeys_path, '-y', self._nca_path])
+        args: list[str] = []
+        if self._enc_titlekey:
+            args.extend(['--titlekey', self._enc_titlekey])
+        args.extend(['-y', self._nca_path])
+
+        proc = utilsRunHactoolnet('nca', args)
         if (not proc.stdout) or (proc.returncode != 0):
             # Check if we're dealing with a missing titlekey error.
             if proc.stderr and re.search(HACTOOLNET_MISSING_TITLEKEY_REGEX, proc.stderr):
@@ -287,7 +284,7 @@ class NcaInfo:
                 self._raise_exception('placeholder', rights_id)
             else:
                 hactoolnet_stderr = proc.stderr.strip()
-                self._raise_exception(f'Failed to retrieve NCA info{f" ({hactoolnet_stderr})" if hactoolnet_stderr else ""}.')
+                self._raise_exception(f'Failed to retrieve NCA info{f" ({hactoolnet_stderr})" if hactoolnet_stderr else ""}')
 
         return proc
 
@@ -298,7 +295,7 @@ class NcaInfo:
         rights_id = re.search(HACTOOLNET_RIGHTS_ID_REGEX, proc.stdout)
 
         if (not dist_type) or (not cnt_type) or (not crypto_type):
-            self._raise_exception('Failed to parse hactoolnet output.')
+            self._raise_exception('Failed to parse hactoolnet output')
 
         self._dist_type = dist_type.group(1).lower()
         self._cnt_type = cnt_type.group(1).lower()
@@ -307,20 +304,22 @@ class NcaInfo:
         self._valid = (len(re.findall(HACTOOLNET_VERIFICATION_FAIL_REGEX, proc.stdout)) == 0)
 
         if self._dist_type != NCA_DISTRIBUTION_TYPE:
-            self._raise_exception(f'Invalid distribution type (got "{self._dist_type}", expected "{NCA_DISTRIBUTION_TYPE}").')
+            self._raise_exception(f'Invalid distribution type (got "{self._dist_type}", expected "{NCA_DISTRIBUTION_TYPE}")')
 
         if self._expected_cnt_type and (self._cnt_type != self._expected_cnt_type):
-            self._raise_exception(f'Invalid content type (got "{self._cnt_type}", expected "{self._expected_cnt_type}").')
+            self._raise_exception(f'Invalid content type (got "{self._cnt_type}", expected "{self._expected_cnt_type}")')
 
         if (self._crypto_type == 'titlekey') and (not self._rights_id):
-            self._raise_exception('Failed to parse Rights ID from hactoolnet output.')
+            self._raise_exception('Failed to parse Rights ID from hactoolnet output')
 
         if not self._valid:
-            self._raise_exception('Signature/hash verification failed.')
+            self._raise_exception('Signature/hash verification failed')
 
     def _raise_exception(self, msg: str, rights_id: str = '') -> NoReturn:
         if self._thrd_id >= 0:
-            msg = f'(Thread {self._thrd_id}) {msg}'
+            msg = f'(Thread {self._thrd_id}) {msg}.'
+        else:
+            msg = f'NCA "{self._nca_path}": {msg}.'
 
         raise self.Exception(msg, rights_id)
 
@@ -412,16 +411,16 @@ class TikInfo:
         if not self._enc_titlekey:
             return
 
-        # We'll actually use old hactool here.
-        proc = utilsRunHactool('nca', [f'--titlekey={self._enc_titlekey.value}', self._nca_path])
-        hactool_stderr = proc.stderr.strip()
+        # Get decrypted titlekey from hactoolnet output.
+        proc = utilsRunHactoolnet('nca', ['--titlekey', self._enc_titlekey.value, self._nca_path])
+        hactoolnet_stderr = proc.stderr.strip()
         if (not proc.stdout) or (proc.returncode != 0):
-            raise self.Exception(f'(Thread {self._thrd_id}) Failed to get decrypted titlekey{f" ({hactool_stderr})" if hactool_stderr else ""}.')
+            raise self.Exception(f'(Thread {self._thrd_id}) Failed to get decrypted titlekey{f" ({hactoolnet_stderr})" if hactoolnet_stderr else ""}.')
 
-        dec_titlekey = re.search(HACTOOL_DECRYPTED_TITLEKEY_REGEX, proc.stdout)
+        dec_titlekey = re.search(HACTOOLNET_DECRYPTED_TITLEKEY_REGEX, proc.stdout)
         dec_titlekey = (dec_titlekey.group(1).lower() if dec_titlekey else '')
         if not dec_titlekey:
-            raise self.Exception(f'(Thread {self._thrd_id}) Failed to parse decrypted titlekey from hactool output{f" ({hactool_stderr})" if hactool_stderr else ""}.')
+            raise self.Exception(f'(Thread {self._thrd_id}) Failed to parse decrypted titlekey from hactoolnet output{f" ({hactoolnet_stderr})" if hactoolnet_stderr else ""}.')
 
         # Save decrypted titlekey.
         self._dec_titlekey = TitleKeyInfo(dec_titlekey, self._rights_id)
@@ -436,6 +435,9 @@ class NacpLanguageEntry:
         self.name = nacp_title.name.strip()
         self.publisher = nacp_title.publisher.strip()
         self.lang = Nacp.Language(lang)
+
+        if not self.name:
+            raise ValueError('Invalid Title name.')
 
 class PartitionFileSystem:
     class Exception(Exception):
@@ -572,9 +574,9 @@ class NspGenerator:
     def contents(self) -> list[NcaInfo]:
         return self._contents
 
-    def __init__(self, meta_nca: NcaInfo, tmp_titlekeys_path: str, thrd_id: int) -> None:
+    def __init__(self, meta_nca: NcaInfo, tmp_path: str, thrd_id: int) -> None:
         # Populate class variables.
-        self._populate_vars(meta_nca, tmp_titlekeys_path, thrd_id)
+        self._populate_vars(meta_nca, tmp_path, thrd_id)
 
         # Extract CNMT file from the provided Meta NCA.
         self._extract_and_parse_cnmt()
@@ -588,10 +590,9 @@ class NspGenerator:
         # Perform cleanup.
         self._cleanup()
 
-    def _populate_vars(self, meta_nca: NcaInfo, tmp_titlekeys_path: str, thrd_id: int) -> None:
+    def _populate_vars(self, meta_nca: NcaInfo, tmp_path: str, thrd_id: int) -> None:
         self._meta_nca = meta_nca
-        self._tmp_path = os.path.dirname(tmp_titlekeys_path)
-        self._tmp_titlekeys_path = tmp_titlekeys_path
+        self._tmp_path = tmp_path
         self._thrd_id = thrd_id
 
         self._cnmt_path = ''
@@ -636,7 +637,7 @@ class NspGenerator:
         # Get extracted CNMT filename from hactoolnet's output.
         cnmt_filename = re.search(HACTOOLNET_SAVING_REGEX, proc.stdout)
         if (not cnmt_filename):
-            raise self.Exception(f'(Thread {self._thrd_id}) Error: failed to parse CNMT filename from hactool output. Skipping NSP generation for this title.')
+            raise self.Exception(f'(Thread {self._thrd_id}) Error: failed to parse CNMT filename from hactoolnet output. Skipping NSP generation for this title.')
 
         # Make sure the CNMT was extracted.
         cnmt_filename = cnmt_filename.group(1).strip()
@@ -717,7 +718,7 @@ class NspGenerator:
     def _get_nca_info(self, nca_path: str, nca_size: int) -> NcaInfo:
         try:
             # Retrieve NCA information.
-            nca_info = NcaInfo(nca_path, nca_size, self._tmp_titlekeys_path, self._thrd_id)
+            nca_info = NcaInfo(nca_path, nca_size, self._tik_info.enc_titlekey.value if (self._tik_info and self._tik_info.enc_titlekey) else '', self._thrd_id)
         except NcaInfo.Exception as e:
             # Check if we're dealing with a missing titlekey.
             if e.rights_id and (not self._rights_id):
@@ -729,7 +730,7 @@ class NspGenerator:
 
                 try:
                     # Try to retrieve NCA information once more, this time using proper titlekey crypto info.
-                    nca_info = NcaInfo(nca_path, nca_size, self._tmp_titlekeys_path, self._thrd_id)
+                    nca_info = NcaInfo(nca_path, nca_size, self._tik_info.enc_titlekey.value if (self._tik_info and self._tik_info.enc_titlekey) else '', self._thrd_id)
                 except NcaInfo.Exception as e:
                     # Reraise the exception as a NspGenerator.Exception.
                     raise self.Exception(str(e))
@@ -746,10 +747,6 @@ class NspGenerator:
         except TikInfo.Exception as e:
             # Reraise the exception as a NspGenerator.Exception.
             raise self.Exception(str(e))
-
-        # Update temporary titlekeys file for this thread.
-        with open(self._tmp_titlekeys_path, 'a', encoding='utf-8') as fd:
-            fd.write(f'{self._rights_id} = {self._tik_info.enc_titlekey.value if self._tik_info.enc_titlekey else ""}\n')
 
         # Generate certificate chain filename.
         self._cert_filename = f'{self._rights_id}.cert'
@@ -783,8 +780,12 @@ class NspGenerator:
             # Get current NACP Title entry.
             nacp_title: Nacp.Title = self._nacp.title[lang.value]
 
-            # Build a NacpLanguageEntry object using
-            nacp_lang_entry = NacpLanguageEntry(nacp_title, lang.value)
+            try:
+                # Build a NacpLanguageEntry object using this Title entry.
+                # Don't proceed any further if object initialization fails.
+                nacp_lang_entry = NacpLanguageEntry(nacp_title, lang.value)
+            except Exception:
+                continue
 
             # Update language entry dictionary.
             self._lang_entries.append(nacp_lang_entry)
@@ -951,17 +952,14 @@ def utilsProcessMetaNcaList(meta_nca_list_chunks: list[list[NcaInfo]], results: 
     meta_nca_list = meta_nca_list_chunks[thrd_id]
     thrd_res: list[NspGenerator] = []
 
-    # Create temporary directory and titlekeys file for this thread.
+    # Create temporary directory for this thread.
     tmp_path = os.path.join(OUTPUT_PATH, f'{utilsGetRandomString(32)}_{thrd_id}')
-    tmp_titlekeys_path = os.path.join(tmp_path, 'title.keys')
     os.makedirs(tmp_path, exist_ok=True)
-    with open(tmp_titlekeys_path, 'w'):
-        pass
 
     # Generate NSP files.
     for meta_nca in meta_nca_list:
         try:
-            nsp_gen = NspGenerator(meta_nca, tmp_titlekeys_path, thrd_id)
+            nsp_gen = NspGenerator(meta_nca, tmp_path, thrd_id)
         except NspGenerator.Exception as e:
             eprint(str(e))
             continue
@@ -1019,6 +1017,8 @@ def utilsProcessCdnDirectory() -> None:
     if not meta_nca_infos:
         raise FileNotFoundError('Error: failed to locate and parse any Meta NCAs within the CDN directory.')
 
+    print()
+
     # Create processing threads.
     meta_nca_list_chunks: list[list[NcaInfo]] = list(filter(None, list(utilsGetListChunks(meta_nca_infos, NUM_THREADS))))
     num_threads = len(meta_nca_list_chunks)
@@ -1066,7 +1066,7 @@ def utilsValidateThreadCount(num_threads: str) -> int:
     return val
 
 def main() -> int:
-    global CDN_PATH, HACTOOL_PATH, HACTOOLNET_PATH, KEYS_PATH, CERT_PATH, OUTPUT_PATH, NUM_THREADS
+    global CDN_PATH, HACTOOLNET_PATH, KEYS_PATH, CERT_PATH, OUTPUT_PATH, NUM_THREADS
 
     # Reconfigure terminal output whenever possible.
     utilsReconfigureTerminalOutput()
@@ -1074,7 +1074,6 @@ def main() -> int:
     parser = argparse.ArgumentParser(description='Deterministically recreates Nintendo Submission Packages (NSP) files from extracted CDN data following nxdumptool NSP generation guidelines.')
 
     parser.add_argument('--cdndir', type=str, metavar='DIR', default='', help=f'Path to directory with extracted CDN data (will be processed recursively). Defaults to "{CDN_PATH}".')
-    parser.add_argument('--hactool', type=str, metavar='FILE', default='', help=f'Path to hactool binary. Defaults to "{HACTOOL_PATH}".')
     parser.add_argument('--hactoolnet', type=str, metavar='FILE', default='', help=f'Path to hactoolnet binary. Defaults to "{HACTOOLNET_PATH}".')
     parser.add_argument('--keys', type=str, metavar='FILE', default='', help=f'Path to Nintendo Switch keys file. Defaults to "{KEYS_PATH}".')
     parser.add_argument('--cert', type=str, metavar='FILE', default='', help=f'Path to 0x{COMMON_CERT_SIZE:x}-byte long Nintendo Switch common certificate chain with SHA-256 checksum "{COMMON_CERT_HASH.upper()}". Defaults to "{CERT_PATH}".')
@@ -1087,7 +1086,6 @@ def main() -> int:
     args = parser.parse_args()
 
     CDN_PATH = utilsGetPath(args.cdndir, os.path.join(INITIAL_DIR, CDN_PATH), False)
-    HACTOOL_PATH = utilsGetPath(args.hactool, os.path.join(INITIAL_DIR, HACTOOL_PATH), True)
     HACTOOLNET_PATH = utilsGetPath(args.hactoolnet, os.path.join(INITIAL_DIR, HACTOOLNET_PATH), True)
     KEYS_PATH = utilsGetPath(args.keys, KEYS_PATH, True)
     CERT_PATH = utilsGetPath(args.cert, CERT_PATH, True)

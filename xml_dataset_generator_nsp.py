@@ -48,7 +48,6 @@ MAX_CPU_THREAD_COUNT: int = psutil.cpu_count()
 DEFAULT_KEYS_PATH: str = os.path.join('~', '.switch', 'prod.keys')
 
 NSP_PATH:        str = os.path.join('.', 'nsp')
-HACTOOL_PATH:    str = os.path.join('.', ('hactool.exe' if os.name == 'nt' else 'hactool'))
 HACTOOLNET_PATH: str = os.path.join('.', ('hactoolnet.exe' if os.name == 'nt' else 'hactoolnet'))
 KEYS_PATH:       str = DEFAULT_KEYS_PATH
 OUTPUT_PATH:     str = os.path.join('.', 'out')
@@ -80,8 +79,7 @@ HACTOOLNET_VERIFICATION_FAIL_REGEX  = re.compile(r'\(FAIL\)', flags=(re.MULTILIN
 HACTOOLNET_SAVING_REGEX             = re.compile(r'^section\d+:/(.+\.cnmt)$', flags=(re.MULTILINE | re.IGNORECASE))
 HACTOOLNET_MISSING_TITLEKEY_REGEX   = re.compile(r'Missing NCA title key', flags=(re.MULTILINE | re.IGNORECASE))
 HACTOOLNET_ALT_RIGHTS_ID_REGEX      = re.compile(r'Title key for rights ID ([0-9a-f]{32})$', flags=(re.MULTILINE | re.IGNORECASE))
-
-HACTOOL_DECRYPTED_TITLEKEY_REGEX    = re.compile(r'^Titlekey \(Decrypted\)(?: \(From CLI\))?\s+([0-9a-f]{32})$', flags=(re.MULTILINE | re.IGNORECASE))
+HACTOOLNET_DECRYPTED_TITLEKEY_REGEX = re.compile(r'^Titlekey \(Decrypted\)(?: \(From CLI\))?:?\s+([0-9a-f]{32})$', flags=(re.MULTILINE | re.IGNORECASE))
 
 NCA_DISTRIBUTION_TYPE: str = 'download'
 
@@ -203,15 +201,9 @@ def utilsGetHactoolnetVersion() -> None:
     if not HACTOOLNET_VERSION:
         raise ValueError('Failed to get hactoolnet version!')
 
-def utilsRunHactoolAtPath(tool_path: str, type: str, args: list[str]) -> subprocess.CompletedProcess[str]:
-    tool_args = [tool_path, '-t', type, '-k', KEYS_PATH, '--disablekeywarns'] + args
-    return subprocess.run(tool_args, capture_output=True, encoding='utf-8')
-
-def utilsRunHactool(type: str, args: list[str]) -> subprocess.CompletedProcess[str]:
-    return utilsRunHactoolAtPath(HACTOOL_PATH, type, args)
-
 def utilsRunHactoolnet(type: str, args: list[str]) -> subprocess.CompletedProcess[str]:
-    return utilsRunHactoolAtPath(HACTOOLNET_PATH, type, args)
+    args = [HACTOOLNET_PATH, '-t', type, '-k', KEYS_PATH, '--disablekeywarns'] + args
+    return subprocess.run(args, capture_output=True, encoding='utf-8')
 
 def utilsCopyKeysFile() -> None:
     hactoolnet_keys_path = os.path.abspath(os.path.expanduser(os.path.expandvars(DEFAULT_KEYS_PATH)))
@@ -315,9 +307,9 @@ class NcaInfo:
         # Content IDs are just the first half of the NCA's SHA-256 checksum.
         return (self._checksums.sha256[:32] if self._checksums else '')
 
-    def __init__(self, nca_path: str, nca_size: int, thrd_id: int, tmp_titlekeys_path: str, expected_cnt_type: str = '') -> None:
+    def __init__(self, nca_path: str, nca_size: int, thrd_id: int, enc_titlekey: str = '', expected_cnt_type: str = '') -> None:
         # Populate class variables.
-        self._populate_vars(nca_path, nca_size, thrd_id, tmp_titlekeys_path, expected_cnt_type)
+        self._populate_vars(nca_path, nca_size, thrd_id, enc_titlekey, expected_cnt_type)
 
         # Run hactoolnet.
         proc = self._get_hactoolnet_output()
@@ -328,13 +320,13 @@ class NcaInfo:
         # Calculate NCA checksums.
         self._checksums = Checksums.from_path(self._nca_path)
 
-    def _populate_vars(self, nca_path: str, nca_size: int, thrd_id: int, tmp_titlekeys_path: str, expected_cnt_type: str) -> None:
+    def _populate_vars(self, nca_path: str, nca_size: int, thrd_id: int, enc_titlekey: str, expected_cnt_type: str) -> None:
         self._nca_path = nca_path
         self._nca_size = nca_size
         self._nca_filename = os.path.basename(self._nca_path)
 
         self._thrd_id = thrd_id
-        self._tmp_titlekeys_path = tmp_titlekeys_path
+        self._enc_titlekey = enc_titlekey
 
         self._expected_cnt_type = expected_cnt_type.lower()
 
@@ -348,7 +340,12 @@ class NcaInfo:
 
     def _get_hactoolnet_output(self) -> subprocess.CompletedProcess[str]:
         # Run hactoolnet.
-        proc = utilsRunHactoolnet('nca', ['--titlekeys', self._tmp_titlekeys_path, '-y', self._nca_path])
+        args: list[str] = []
+        if self._enc_titlekey:
+            args.extend(['--titlekey', self._enc_titlekey])
+        args.extend(['-y', self._nca_path])
+
+        proc = utilsRunHactoolnet('nca', args)
         if (not proc.stdout) or (proc.returncode != 0):
             # Check if we're dealing with a missing titlekey error.
             if proc.stderr and re.search(HACTOOLNET_MISSING_TITLEKEY_REGEX, proc.stderr):
@@ -495,16 +492,16 @@ class TikInfo:
         if not self._enc_titlekey:
             return
 
-        # We'll actually use old hactool here.
-        proc = utilsRunHactool('nca', [f'--titlekey={self._enc_titlekey.value}', self._nca_path])
-        hactool_stderr = proc.stderr.strip()
+        # Get decrypted titlekey from hactoolnet output.
+        proc = utilsRunHactoolnet('nca', ['--titlekey', self._enc_titlekey.value, self._nca_path])
+        hactoolnet_stderr = proc.stderr.strip()
         if (not proc.stdout) or (proc.returncode != 0):
-            raise self.Exception(f'(Thread {self._thrd_id}) Failed to get decrypted titlekey{f" ({hactool_stderr})" if hactool_stderr else ""}.')
+            raise self.Exception(f'(Thread {self._thrd_id}) Failed to get decrypted titlekey{f" ({hactoolnet_stderr})" if hactoolnet_stderr else ""}.')
 
-        dec_titlekey = re.search(HACTOOL_DECRYPTED_TITLEKEY_REGEX, proc.stdout)
+        dec_titlekey = re.search(HACTOOLNET_DECRYPTED_TITLEKEY_REGEX, proc.stdout)
         dec_titlekey = (dec_titlekey.group(1).lower() if dec_titlekey else '')
         if not dec_titlekey:
-            raise self.Exception(f'(Thread {self._thrd_id}) Failed to parse decrypted titlekey from hactool output{f" ({hactool_stderr})" if hactool_stderr else ""}.')
+            raise self.Exception(f'(Thread {self._thrd_id}) Failed to parse decrypted titlekey from hactoolnet output{f" ({hactoolnet_stderr})" if hactoolnet_stderr else ""}.')
 
         # Save decrypted titlekey.
         self._dec_titlekey = TitleKeyInfo(dec_titlekey, self._rights_id, self._data_path, True)
@@ -519,6 +516,9 @@ class NacpLanguageEntry:
         self.name = nacp_title.name.strip()
         self.publisher = nacp_title.publisher.strip()
         self.lang = Nacp.Language(lang)
+
+        if not self.name:
+            raise ValueError('Invalid Title name.')
 
 class TitleInfo:
     class Exception(Exception):
@@ -565,9 +565,9 @@ class TitleInfo:
     def contents(self) -> list[NcaInfo]:
         return self._contents
 
-    def __init__(self, meta_nca: NcaInfo, data_path: str, tmp_titlekeys_path: str, thrd_id: int) -> None:
+    def __init__(self, meta_nca: NcaInfo, data_path: str, thrd_id: int) -> None:
         # Populate class variables.
-        self._populate_vars(meta_nca, data_path, tmp_titlekeys_path, thrd_id)
+        self._populate_vars(meta_nca, data_path, thrd_id)
 
         # Extract CNMT file from the provided Meta NCA.
         self._extract_and_parse_cnmt()
@@ -578,11 +578,9 @@ class TitleInfo:
         # Perform cleanup.
         self._cleanup()
 
-    def _populate_vars(self, meta_nca: NcaInfo, data_path: str, tmp_titlekeys_path: str, thrd_id: int) -> None:
+    def _populate_vars(self, meta_nca: NcaInfo, data_path: str, thrd_id: int) -> None:
         self._meta_nca = meta_nca
         self._data_path = data_path
-
-        self._tmp_titlekeys_path = tmp_titlekeys_path
         self._thrd_id = thrd_id
 
         self._cnmt_path = ''
@@ -619,7 +617,7 @@ class TitleInfo:
         # Get extracted CNMT filename from hactoolnet's output.
         cnmt_filename = re.search(HACTOOLNET_SAVING_REGEX, proc.stdout)
         if (not cnmt_filename):
-            raise self.Exception(f'(Thread {self._thrd_id}) Error: failed to parse CNMT filename from hactool output. Skipping current title.')
+            raise self.Exception(f'(Thread {self._thrd_id}) Error: failed to parse CNMT filename from hactoolnet output. Skipping current title.')
 
         # Make sure the CNMT was extracted.
         cnmt_filename = cnmt_filename.group(1).strip()
@@ -698,7 +696,7 @@ class TitleInfo:
     def _get_nca_info(self, nca_path: str, nca_size: int) -> NcaInfo:
         try:
             # Retrieve NCA information.
-            nca_info = NcaInfo(nca_path, nca_size, self._thrd_id, self._tmp_titlekeys_path)
+            nca_info = NcaInfo(nca_path, nca_size, self._thrd_id, self._tik_info.enc_titlekey.value if (self._tik_info and self._tik_info.enc_titlekey) else '')
         except NcaInfo.Exception as e:
             # Check if we're dealing with a missing titlekey.
             if e.rights_id and (not self._rights_id):
@@ -710,7 +708,7 @@ class TitleInfo:
 
                 try:
                     # Try to retrieve NCA information once more, this time using proper titlekey crypto info.
-                    nca_info = NcaInfo(nca_path, nca_size, self._thrd_id, self._tmp_titlekeys_path)
+                    nca_info = NcaInfo(nca_path, nca_size, self._thrd_id, self._tik_info.enc_titlekey.value if (self._tik_info and self._tik_info.enc_titlekey) else '')
                 except NcaInfo.Exception as e:
                     # Reraise the exception as a TitleInfo.Exception.
                     raise self.Exception(str(e))
@@ -727,10 +725,6 @@ class TitleInfo:
         except TikInfo.Exception as e:
             # Reraise the exception as a TitleInfo.Exception.
             raise self.Exception(str(e))
-
-        # Update temporary titlekeys file for this thread.
-        with open(self._tmp_titlekeys_path, 'a', encoding='utf-8') as fd:
-            fd.write(f'{self._rights_id} = {self._tik_info.enc_titlekey.value if self._tik_info.enc_titlekey else ""}\n')
 
     def _extract_and_parse_nacp(self, nca_info: NcaInfo) -> None:
         # Extract files from Control NCA FS section 0.
@@ -761,8 +755,12 @@ class TitleInfo:
             # Get current NACP Title entry.
             nacp_title: Nacp.Title = self._nacp.title[lang.value]
 
-            # Build a NacpLanguageEntry object using
-            nacp_lang_entry = NacpLanguageEntry(nacp_title, lang.value)
+            try:
+                # Build a NacpLanguageEntry object using this Title entry.
+                # Don't proceed any further if object initialization fails.
+                nacp_lang_entry = NacpLanguageEntry(nacp_title, lang.value)
+            except Exception:
+                continue
 
             # Update language entry dictionary.
             self._lang_entries.append(nacp_lang_entry)
@@ -835,9 +833,9 @@ class NspInfo:
     def titles(self) -> list[TitleInfo]:
         return self._titles
 
-    def __init__(self, file_entry: FileListEntry, tmp_titlekeys_path: str, thrd_id: int) -> None:
+    def __init__(self, file_entry: FileListEntry, thrd_id: int) -> None:
         # Populate class variables.
-        self._populate_vars(file_entry, tmp_titlekeys_path, thrd_id)
+        self._populate_vars(file_entry, thrd_id)
 
         # Handle filenames with non-ASCII codepoints.
         self._handle_nonascii_filename()
@@ -858,7 +856,7 @@ class NspInfo:
         # Perform cleanup.
         self._cleanup()
 
-    def _populate_vars(self, file_entry: FileListEntry, tmp_titlekeys_path: str, thrd_id: int) -> None:
+    def _populate_vars(self, file_entry: FileListEntry, thrd_id: int) -> None:
         self._orig_nsp_path = file_entry[0]
         self._nsp_path = file_entry[0]
         self._nsp_size = file_entry[1]
@@ -867,7 +865,6 @@ class NspInfo:
         self._is_nsz = self._nsp_path.lower().endswith('.nsz')
         self._tmp_path = ''
 
-        self._tmp_titlekeys_path = tmp_titlekeys_path
         self._thrd_id = thrd_id
 
         self._checksums: Checksums | None = None
@@ -928,7 +925,7 @@ class NspInfo:
         for meta_nca in meta_nca_infos:
             try:
                 # Initialize TitleInfo object using the current Meta NCA.
-                title_info = TitleInfo(meta_nca, self._ext_nsp_path, self._tmp_titlekeys_path, self._thrd_id)
+                title_info = TitleInfo(meta_nca, self._ext_nsp_path, self._thrd_id)
             except TitleInfo.Exception as e:
                 eprint(str(e))
                 continue
@@ -955,7 +952,7 @@ class NspInfo:
 
             try:
                 # Retrieve Meta NCA information.
-                nca_info = NcaInfo(cur_path, nca_size, self._thrd_id, self._tmp_titlekeys_path, 'meta')
+                nca_info = NcaInfo(cur_path, nca_size, self._thrd_id)
             except NcaInfo.Exception as e:
                 eprint(str(e))
                 continue
@@ -1285,17 +1282,12 @@ def utilsProcessNspList(file_list_chunks: list[FileList], results: list[list[Nsp
     file_list = file_list_chunks[thrd_id]
     thrd_res: list[NspInfo] = []
 
-    # Generate temporary titlekeys file for this thread.
-    tmp_titlekeys_path = os.path.join(OUTPUT_PATH, f'{GIT_REV}_{utilsGetRandomString(8)}_{thrd_id}_title.keys')
-    with open(tmp_titlekeys_path, 'w'):
-        pass
-
     # Process NSP files.
     for entry in file_list:
         print(f'(Thread {thrd_id}) Processing "{os.path.basename(entry[0])}" (0x{entry[1]:X} bytes long)...', flush=True)
 
         try:
-            nsp_info = NspInfo(entry, tmp_titlekeys_path, thrd_id)
+            nsp_info = NspInfo(entry, thrd_id)
         except NspInfo.Exception as e:
             eprint(str(e))
             continue
@@ -1305,10 +1297,6 @@ def utilsProcessNspList(file_list_chunks: list[FileList], results: list[list[Nsp
 
     # Update results entry.
     results[thrd_id] = thrd_res
-
-    # Remove temporary titlekeys file.
-    if os.path.exists(tmp_titlekeys_path):
-        os.remove(tmp_titlekeys_path)
 
 def utilsGetNspFileList(path: str) -> FileList:
     file_list: FileList = []
@@ -1375,7 +1363,7 @@ def utilsValidateThreadCount(num_threads: str) -> int:
     return val
 
 def main() -> int:
-    global NSP_PATH, HACTOOL_PATH, HACTOOLNET_PATH, KEYS_PATH, OUTPUT_PATH, EXCLUDE_NSP, EXCLUDE_TIK
+    global NSP_PATH, HACTOOLNET_PATH, KEYS_PATH, OUTPUT_PATH, EXCLUDE_NSP, EXCLUDE_TIK
     global DEFAULT_SECTION, DDATE_PROVIDED, DEFAULT_DDATE, RDATE_PROVIDED, DEFAULT_RDATE, DEFAULT_DUMPER, DEFAULT_PROJECT, DEFAULT_TOOL, DEFAULT_REGION
     global EXCLUDE_COMMENT, KEEP_FOLDERS, NUM_THREADS
 
@@ -1388,7 +1376,6 @@ def main() -> int:
     parser = argparse.ArgumentParser(description='Generate a XML dataset from Nintendo Submission Package (NSP) files.')
 
     parser.add_argument('--nspdir', type=str, metavar='DIR', default='', help=f'Path to directory with NSP files. Defaults to "{NSP_PATH}".')
-    parser.add_argument('--hactool', type=str, metavar='FILE', default='', help=f'Path to hactool binary. Defaults to "{HACTOOL_PATH}".')
     parser.add_argument('--hactoolnet', type=str, metavar='FILE', default='', help=f'Path to hactoolnet binary. Defaults to "{HACTOOLNET_PATH}".')
     parser.add_argument('--keys', type=str, metavar='FILE', default='', help=f'Path to Nintendo Switch keys file. Defaults to "{KEYS_PATH}".')
     parser.add_argument('--outdir', type=str, metavar='DIR', default='', help=f'Path to output directory. Defaults to "{OUTPUT_PATH}".')
@@ -1413,7 +1400,6 @@ def main() -> int:
     args = parser.parse_args()
 
     NSP_PATH = utilsGetPath(args.nspdir, os.path.join(INITIAL_DIR, NSP_PATH), False)
-    HACTOOL_PATH = utilsGetPath(args.hactool, os.path.join(INITIAL_DIR, HACTOOL_PATH), True)
     HACTOOLNET_PATH = utilsGetPath(args.hactoolnet, os.path.join(INITIAL_DIR, HACTOOLNET_PATH), True)
     KEYS_PATH = utilsGetPath(args.keys, KEYS_PATH, True)
     OUTPUT_PATH = utilsGetPath(args.outdir, os.path.join(INITIAL_DIR, OUTPUT_PATH), False, True)
