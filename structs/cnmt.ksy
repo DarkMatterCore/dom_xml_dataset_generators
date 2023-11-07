@@ -50,7 +50,7 @@ seq:
     size: 0x20
 instances:
   extended_data_size:
-    value: '(_root.header.content_meta_type == content_meta_type::system_update ? extended_header.as<system_update_extended_header>.extended_data_size : (_root.header.content_meta_type == content_meta_type::patch ? extended_header.as<patch_extended_header>.extended_data_size : (_root.header.content_meta_type == content_meta_type::delta ? extended_header.as<delta_extended_header>.extended_data_size : (_root.header.content_meta_type == content_meta_type::data_patch ? extended_header.as<data_patch_extended_header>.extended_data_size : 0))))'
+    value: '(_root.header.extended_header_size <= 0 ? 0 : (_root.header.content_meta_type == content_meta_type::system_update ? extended_header.as<system_update_extended_header>.extended_data_size : (_root.header.content_meta_type == content_meta_type::patch ? extended_header.as<patch_extended_header>.extended_data_size : (_root.header.content_meta_type == content_meta_type::delta ? extended_header.as<delta_extended_header>.extended_data_size : (_root.header.content_meta_type == content_meta_type::data_patch ? extended_header.as<data_patch_extended_header>.extended_data_size : 0)))))'
 enums:
   dummy_meta_type:
     0x0:  system_update
