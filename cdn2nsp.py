@@ -65,6 +65,8 @@ COMMON_CERT_HASH: str = '3c4f20dca231655e90c75b3e9689e4dd38135401029ab1f2ea32d1c
 
 PFS_FULL_HEADER_ALIGNMENT: int = 0x20
 
+BOGUS_TITLEKEYS_PATH: str = ''
+
 def eprint(*args, **kwargs) -> None:
     print(*args, file=sys.stderr, **kwargs)
 
@@ -110,8 +112,18 @@ def utilsReconfigureTerminalOutput() -> None:
             sys.stderr.reconfigure(encoding='utf-8')
 
 def utilsRunHactoolnet(type: str, args: list[str]) -> subprocess.CompletedProcess[str]:
-    args = [HACTOOLNET_PATH, '-t', type, '-k', KEYS_PATH, '--disablekeywarns'] + args
+    args = [HACTOOLNET_PATH, '-t', type, '-k', KEYS_PATH, '--titlekeys', BOGUS_TITLEKEYS_PATH, '--disablekeywarns'] + args
     return subprocess.run(args, capture_output=True, encoding='utf-8')
+
+def utilsCreateBogusTitleKeysFile() -> None:
+    global BOGUS_TITLEKEYS_PATH
+    BOGUS_TITLEKEYS_PATH = os.path.join(OUTPUT_PATH, 'bogus_title.keys')
+    with open(BOGUS_TITLEKEYS_PATH, 'w') as fd:
+        pass
+
+def utilsDeleteBogusTitleKeysFile() -> None:
+    if BOGUS_TITLEKEYS_PATH:
+        os.remove(BOGUS_TITLEKEYS_PATH)
 
 def utilsLocateCdnFile(base_path: str, filename: str, size: int = -1) -> str:
     # Check if we can find the requested file at the provided base path.
@@ -1095,8 +1107,14 @@ def main() -> int:
     # Validate common certificate chain.
     utilsValidateCommonCertChain()
 
+    # Create bogus titlekeys file.
+    utilsCreateBogusTitleKeysFile()
+
     # Do our thing.
     utilsProcessCdnDirectory()
+
+    # Delete bogus titlekeys file.
+    utilsDeleteBogusTitleKeysFile()
 
     return 0
 

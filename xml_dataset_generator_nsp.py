@@ -116,6 +116,8 @@ GIT_REV:    str = ''
 
 HACTOOLNET_VERSION: str = ''
 
+BOGUS_TITLEKEYS_PATH: str = ''
+
 HASH_BLOCK_SIZE: int = 0x800000 # 8 MiB
 
 def eprint(*args, **kwargs) -> None:
@@ -202,7 +204,7 @@ def utilsGetHactoolnetVersion() -> None:
         raise ValueError('Failed to get hactoolnet version!')
 
 def utilsRunHactoolnet(type: str, args: list[str]) -> subprocess.CompletedProcess[str]:
-    args = [HACTOOLNET_PATH, '-t', type, '-k', KEYS_PATH, '--disablekeywarns'] + args
+    args = [HACTOOLNET_PATH, '-t', type, '-k', KEYS_PATH, '--titlekeys', BOGUS_TITLEKEYS_PATH, '--disablekeywarns'] + args
     return subprocess.run(args, capture_output=True, encoding='utf-8')
 
 def utilsCopyKeysFile() -> None:
@@ -210,6 +212,16 @@ def utilsCopyKeysFile() -> None:
     if KEYS_PATH != hactoolnet_keys_path:
         os.makedirs(hactoolnet_keys_path, exist_ok=True)
         shutil.copyfile(KEYS_PATH, hactoolnet_keys_path)
+
+def utilsCreateBogusTitleKeysFile() -> None:
+    global BOGUS_TITLEKEYS_PATH
+    BOGUS_TITLEKEYS_PATH = os.path.join(OUTPUT_PATH, 'bogus_title.keys')
+    with open(BOGUS_TITLEKEYS_PATH, 'w') as fd:
+        pass
+
+def utilsDeleteBogusTitleKeysFile() -> None:
+    if BOGUS_TITLEKEYS_PATH:
+        os.remove(BOGUS_TITLEKEYS_PATH)
 
 @dataclass(init=False)
 class Checksums:
@@ -1430,8 +1442,14 @@ def main() -> int:
     # Copy keys file (required by nsz since it offers no way to provide a keys file path).
     utilsCopyKeysFile()
 
+    # Create bogus titlekeys file.
+    utilsCreateBogusTitleKeysFile()
+
     # Do our thing.
     utilsProcessNspDirectory()
+
+    # Delete bogus titlekeys file.
+    utilsDeleteBogusTitleKeysFile()
 
     return 0
 
