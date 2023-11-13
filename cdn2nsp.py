@@ -20,7 +20,7 @@
 
 from __future__ import annotations
 
-import os, sys, re, subprocess, shutil, hashlib, random, string, glob, threading, psutil, time, argparse, io, struct, traceback
+import os, sys, re, subprocess, shutil, hashlib, random, string, glob, threading, psutil, time, argparse, io, struct, traceback, rsa
 
 from io import BytesIO
 from dataclasses import dataclass
@@ -55,6 +55,7 @@ HACTOOLNET_SAVING_REGEX             = re.compile(r'^section\d+:/(.+\.cnmt)$', fl
 HACTOOLNET_MISSING_TITLEKEY_REGEX   = re.compile(r'Missing NCA title key', flags=(re.MULTILINE | re.IGNORECASE))
 HACTOOLNET_ALT_RIGHTS_ID_REGEX      = re.compile(r'Title key for rights ID ([0-9a-f]{32})$', flags=(re.MULTILINE | re.IGNORECASE))
 HACTOOLNET_DECRYPTED_TITLEKEY_REGEX = re.compile(r'^Titlekey \(Decrypted\)(?: \(From CLI\))?:?\s+([0-9a-f]{32})$', flags=(re.MULTILINE | re.IGNORECASE))
+HACTOOLNET_MKEY_REVISION_REGEX      = re.compile(r'^Master Key Revision:\s+(\d+)\s+\([^\)]+\)$', flags=(re.MULTILINE | re.IGNORECASE))
 
 NCA_DISTRIBUTION_TYPE: str = 'download'
 
@@ -370,6 +371,10 @@ class TikInfo:
         return self._tik_size
 
     @property
+    def valid_sig(self) -> bool:
+        return self._valid_sig
+
+    @property
     def enc_titlekey(self) -> TitleKeyInfo | None:
         return self._enc_titlekey
 
@@ -381,11 +386,17 @@ class TikInfo:
         # Populate class variables.
         self._populate_vars(rights_id, base_path, nca_path, thrd_id)
 
-        # Parse encrypted titlekey from ticket file.
-        self._get_encrypted_titlekey()
+        # Validate ticket file structure.
+        self._validate_tik()
 
-        # Get decrypted titlekey.
-        self._get_decrypted_titlekey()
+        # Verify ticket signature.
+        self._verify_tik_sig()
+
+        # Get decrypted titlekey and key generation.
+        self._get_dec_tk_and_key_gen()
+
+        # Fix tampered ticket, if needed.
+        self._fix_tampered_tik()
 
     def _populate_vars(self, rights_id: str, base_path: str, nca_path: str, thrd_id: int) -> None:
         self._rights_id = rights_id.lower()
@@ -400,7 +411,10 @@ class TikInfo:
         self._enc_titlekey: TitleKeyInfo | None = None
         self._dec_titlekey: TitleKeyInfo | None = None
 
-    def _get_encrypted_titlekey(self) -> None:
+        self._key_generation = 0
+        self._valid_sig = False
+
+    def _validate_tik(self) -> None:
         # Make sure the ticket file exists.
         if not self._tik_path:
             raise self.Exception(f'(Thread {self._thrd_id}) Error: unable to locate ticket file "{self._tik_filename}". Skipping NSP generation for this title.')
@@ -408,34 +422,105 @@ class TikInfo:
         # Parse ticket file.
         tik = Tik.from_file(self._tik_path)
 
+        # Make sure the ticket uses a RSA-2048 PKCS#1 v1.5 + SHA-256 signature.
+        if tik.sig_type != Tik.SignatureType.rsa2048_sha256:
+            raise self.Exception(f'(Thread {self._thrd_id}) Error: ticket "{self._tik_filename}" doesn\'t use a RSA-2048 PKCS#1 v1.5 + SHA-256 signature. Skipping NSP generation for this title.')
+
         # Make sure the ticket uses common crypto.
         if tik.titlekey_type != Tik.TitlekeyType.common:
             raise self.Exception(f'(Thread {self._thrd_id}) Error: ticket "{self._tik_filename}" doesn\'t use common crypto. Skipping NSP generation for this title.')
 
-        # Save encrypted titlekey.
-        enc_titlekey = tik.titlekey_block[:16].hex().lower()
-        self._enc_titlekey = TitleKeyInfo(enc_titlekey, self._rights_id)
+        # Load encrypted titlekey right away.
+        self._enc_titlekey = TitleKeyInfo(tik.titlekey_block[:16].hex().lower(), self._rights_id)
 
         # Close ticket.
         tik.close()
 
-    def _get_decrypted_titlekey(self) -> None:
+    def _verify_tik_sig(self) -> None:
+        # Read RSA public key from the certificate chain.
+        with open(CERT_PATH, 'rb') as fd:
+            fd.seek(0x5C8)
+            modulus = int.from_bytes(fd.read(0x100), 'big')
+            pub_exp = int.from_bytes(fd.read(0x4), 'big')
+
+        pub_key = rsa.PublicKey(modulus, pub_exp)
+
+        # Read signature and message from the ticket itself.
+        with open(self._tik_path, 'rb') as fd:
+            fd.seek(0x4)
+            signature = fd.read(0x100)
+
+            fd.seek(0x140)
+            message = fd.read()
+
+        try:
+            # Verify ticket signature.
+            rsa.verify(message, signature, pub_key)
+        except rsa.VerificationError:
+            # Invalid signature.
+            self._valid_sig = False
+        else:
+            # Valid signature. We'll keep the ticket untouched.
+            self._valid_sig = True
+
+        print(f'(Thread {self._thrd_id}) Signature for common ticket "{self._tik_filename}" is {"valid" if self._valid_sig else "invalid"}.', flush=True)
+
+    def _get_dec_tk_and_key_gen(self) -> None:
         if not self._enc_titlekey:
             return
 
-        # Get decrypted titlekey from hactoolnet output.
+        # Get decrypted titlekey and key generation from hactoolnet output.
         proc = utilsRunHactoolnet('nca', ['--titlekey', self._enc_titlekey.value, self._nca_path])
         hactoolnet_stderr = proc.stderr.strip()
         if (not proc.stdout) or (proc.returncode != 0):
-            raise self.Exception(f'(Thread {self._thrd_id}) Failed to get decrypted titlekey{f" ({hactoolnet_stderr})" if hactoolnet_stderr else ""}.')
+            raise self.Exception(f'(Thread {self._thrd_id}) Failed to retrieve NCA info for ticket {f" ({hactoolnet_stderr})" if hactoolnet_stderr else ""}. Skipping NSP generation for this title.')
 
         dec_titlekey = re.search(HACTOOLNET_DECRYPTED_TITLEKEY_REGEX, proc.stdout)
-        dec_titlekey = (dec_titlekey.group(1).lower() if dec_titlekey else '')
-        if not dec_titlekey:
-            raise self.Exception(f'(Thread {self._thrd_id}) Failed to parse decrypted titlekey from hactoolnet output{f" ({hactoolnet_stderr})" if hactoolnet_stderr else ""}.')
+        nca_key_generation = re.search(HACTOOLNET_MKEY_REVISION_REGEX, proc.stdout)
 
-        # Save decrypted titlekey.
+        if (not dec_titlekey) or (not nca_key_generation):
+            raise self.Exception(f'(Thread {self._thrd_id}) Failed to parse hactoolnet output. Skipping NSP generation for this title.')
+
+        dec_titlekey = dec_titlekey.group(1).lower()
+        nca_key_generation = int(nca_key_generation.group(1))
+        if nca_key_generation > 0:
+            # Convert back to a true NCA key generation value.
+            nca_key_generation += 1
+
+        # Validate key generation value.
+        key_gen_rid = int.from_bytes(bytes.fromhex(self._rights_id[-2:]), 'little', signed=False)
+        old_key_gen = (nca_key_generation < 3)
+
+        if (old_key_gen and key_gen_rid) or ((not old_key_gen) and key_gen_rid != nca_key_generation):
+            expected_key_gen = (0 if old_key_gen else nca_key_generation)
+            raise self.Exception(f'(Thread {self._thrd_id}) Error: invalid rights ID key generation! Got 0x{key_gen_rid:02X}, expected 0x{expected_key_gen:02X}. Skipping NSP generation for this title.')
+
+        # Save values.
         self._dec_titlekey = TitleKeyInfo(dec_titlekey, self._rights_id)
+        self._key_generation = nca_key_generation
+
+    def _fix_tampered_tik(self) -> None:
+        if self._valid_sig or (not self._enc_titlekey):
+            return
+
+        # Serialize a new common ticket.
+        tik = struct.pack('<I', Tik.SignatureType.rsa2048_sha256.value)
+        tik += b'\xFF' * 0x100
+        tik += b'\x00' * 0x3C
+
+        tik += struct.pack('64s', b'Root-CA00000003-XS00000020')
+
+        tik += self._enc_titlekey.raw_value
+        tik += b'\x00' * 0xF0
+
+        tik += struct.pack('<BBHBBH8xQQ', 2, Tik.TitlekeyType.common.value, 0, Tik.LicenseType.permanent.value, self._key_generation, 0, 0, 0)
+        tik += bytes.fromhex(self._rights_id)
+        tik += struct.pack('<IIIHH', 0, 0, 0x2C0, 0, 0)
+
+        with open(self._tik_path, 'wb') as fd:
+            fd.write(tik)
+
+        print(f'(Thread {self._thrd_id}) Wrote 0x{os.path.getsize(self._tik_path):X}-byte long fixed tampered ticket to "{self._tik_path}".', flush=True)
 
 @dataclass(init=False)
 class NacpLanguageEntry:
@@ -520,7 +605,7 @@ class PartitionFileSystem:
         header_size = (len(self._header) + (len(self._entries) * len(self._entries[0])) + len(self._name_table))
 
         # Calculate padded header size and padding size.
-        padded_header_size = (utilsAlignUp(header_size + 1, PFS_FULL_HEADER_ALIGNMENT) if utilsIsAligned(header_size, PFS_FULL_HEADER_ALIGNMENT) else utilsAlignUp(header_size, PFS_FULL_HEADER_ALIGNMENT))
+        padded_header_size = ((header_size + PFS_FULL_HEADER_ALIGNMENT) if utilsIsAligned(header_size, PFS_FULL_HEADER_ALIGNMENT) else utilsAlignUp(header_size, PFS_FULL_HEADER_ALIGNMENT))
         padding_size = (padded_header_size - header_size)
 
         # Serialize full header.
@@ -712,7 +797,7 @@ class NspGenerator:
 
             # Verify content ID.
             if (packaged_content_info.info.id != packaged_content_info.hash[:16]) or (packaged_content_info.info.id.hex().lower() != nca_info.cnt_id):
-                raise self.Exception(f'(Thread {self._thrd_id}) Error: content ID / hash mismatch.')
+                raise self.Exception(f'(Thread {self._thrd_id}) Error: content ID / hash mismatch. Skipping NSP generation for this title.')
 
             # Replace NCA info's content type with the type stored in the CNMT, because it's more descriptive.
             nca_info.cnt_type = cnt_type
@@ -753,12 +838,19 @@ class NspGenerator:
         return nca_info
 
     def _get_tik_info(self, nca_path: str) -> None:
+        if not self._title_type:
+            return
+
         try:
             # Retrieve ticket file info.
             self._tik_info = TikInfo(self._rights_id, os.path.dirname(self._meta_nca.path), nca_path, self._thrd_id)
         except TikInfo.Exception as e:
             # Reraise the exception as a NspGenerator.Exception.
             raise self.Exception(str(e))
+
+        # Make sure the ticket signature is valid if we're dealing with a Patch or DataPatch title.
+        if (not self._tik_info.valid_sig) and ((self._title_type == Cnmt.ContentMetaType.patch) or (self._title_type == Cnmt.ContentMetaType.data_patch)):
+            raise self.Exception(f'(Thread {self._thrd_id}) Error: invalid ticket signature for Patch / DataPatch title. Skipping NSP generation for this title.')
 
         # Generate certificate chain filename.
         self._cert_filename = f'{self._rights_id}.cert'
@@ -1028,8 +1120,6 @@ def utilsProcessCdnDirectory() -> None:
     meta_nca_infos = utilsGetMetaNcaList(CDN_PATH)
     if not meta_nca_infos:
         raise FileNotFoundError('Error: failed to locate and parse any Meta NCAs within the CDN directory.')
-
-    print()
 
     # Create processing threads.
     meta_nca_list_chunks: list[list[NcaInfo]] = list(filter(None, list(utilsGetListChunks(meta_nca_infos, NUM_THREADS))))
