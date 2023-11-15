@@ -446,7 +446,7 @@ class TikInfo:
         return self._tik_size
 
     @property
-    def checksums(self) -> Checksums:
+    def checksums(self) -> Checksums | None:
         return self._tik_checksums
 
     @property
@@ -475,15 +475,19 @@ class TikInfo:
 
         self._tik_filename = f'{self._rights_id}.tik'
         self._tik_path = os.path.join(self._data_path, self._tik_filename)
-        self._tik_size = (os.path.getsize(self._tik_path) if os.path.exists(self._tik_path) else 0)
-        self._tik_checksums: Checksums = Checksums.from_path(self._tik_path)
+        self._tik_size = 0
+        self._tik_checksums: Checksums | None = None
+
+        if os.path.exists(self._tik_path):
+            self._tik_size = os.path.getsize(self._tik_path)
+            self._tik_checksums = Checksums.from_path(self._tik_path)
 
         self._enc_titlekey: TitleKeyInfo | None = None
         self._dec_titlekey: TitleKeyInfo | None = None
 
     def _get_encrypted_titlekey(self) -> None:
         # Make sure the ticket file exists.
-        if not os.path.exists(self._tik_path):
+        if not self._tik_size:
             raise self.Exception(f'(Thread {self._thrd_id}) Error: unable to locate ticket file "{self._tik_path}". Skipping current title.')
 
         try:
@@ -1145,7 +1149,7 @@ class XmlDataset:
 
             title_str += self._generate_xml_file_elem(cnt.filename, '', 'CDN', nca_note, title_info.version, cnt.size, cnt.checksums, utilsCapitalizeString(cnt.cnt_type))
 
-        if (not EXCLUDE_TIK) and title_info.tik_info:
+        if (not EXCLUDE_TIK) and title_info.tik_info and title_info.tik_info.checksums:
             # Add ticket info.
             title_str += self._generate_xml_file_elem(title_info.tik_info.filename, '', 'CDN', '', title_info.version, title_info.tik_info.size, title_info.tik_info.checksums, '')
 
