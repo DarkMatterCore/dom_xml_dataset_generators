@@ -26,15 +26,15 @@ from functools import total_ordering
 from enum import IntEnum
 from io import BytesIO
 from dataclasses import dataclass
-from typing import Generator, IO
+from typing import Generator, IO, TypeAlias
 from html import escape as html_escape
 
 from structs.cnmt import Cnmt
 from structs.tik import Tik
 from structs.nacp import Nacp
 
-FileListEntry = tuple[str, int]
-FileList = list[FileListEntry]
+FileListEntry: TypeAlias = tuple[str, int]
+FileList: TypeAlias = list[FileListEntry]
 
 SCRIPT_PATH: str = os.path.realpath(__file__)
 SCRIPT_NAME: str = os.path.basename(SCRIPT_PATH)
@@ -475,7 +475,7 @@ class TikInfo:
 
         self._tik_filename = f'{self._rights_id}.tik'
         self._tik_path = os.path.join(self._data_path, self._tik_filename)
-        self._tik_size = os.path.getsize(self._tik_path)
+        self._tik_size = (os.path.getsize(self._tik_path) if os.path.exists(self._tik_path) else 0)
         self._tik_checksums: Checksums = Checksums.from_path(self._tik_path)
 
         self._enc_titlekey: TitleKeyInfo | None = None
@@ -486,8 +486,12 @@ class TikInfo:
         if not os.path.exists(self._tik_path):
             raise self.Exception(f'(Thread {self._thrd_id}) Error: unable to locate ticket file "{self._tik_path}". Skipping current title.')
 
-        # Parse ticket file.
-        tik = Tik.from_file(self._tik_path)
+        try:
+            # Parse ticket file.
+            tik = Tik.from_file(self._tik_path)
+        except Exception as e:
+            # Reraise the exception as a TikInfo.Exception.
+            raise self.Exception(str(e))
 
         # Make sure the ticket uses common crypto.
         if tik.titlekey_type != Tik.TitlekeyType.common:
@@ -637,8 +641,12 @@ class TitleInfo:
         if not os.path.exists(self._cnmt_path):
             raise self.Exception(f'(Thread {self._thrd_id}) Error: failed to locate CNMT file after extraction. Skipping current title.')
 
-        # Parse CNMT file.
-        self._cnmt = Cnmt.from_file(self._cnmt_path)
+        try:
+            # Parse CNMT file.
+            self._cnmt = Cnmt.from_file(self._cnmt_path)
+        except Exception as e:
+            # Reraise the exception as a TitleInfo.Exception.
+            raise self.Exception(str(e))
 
         # Update class properties.
         self._title_id = f'{self._cnmt.header.title_id:016x}'
@@ -751,8 +759,12 @@ class TitleInfo:
             eprint(f'(Thread {self._thrd_id}) Error: failed to locate NACP file after extraction. Skipping additional metadata retrieval for current title.')
             return
 
-        # Parse NACP file.
-        self._nacp = Nacp.from_file(self._nacp_path)
+        try:
+            # Parse NACP file.
+            self._nacp = Nacp.from_file(self._nacp_path)
+        except Exception:
+            eprint(f'(Thread {self._thrd_id}) Error: failed to parse NACP file. Skipping additional metadata retrieval for current title.')
+            return
 
         # Retrieve NACP language entry data.
         for lang in Nacp.Language:
@@ -914,7 +926,7 @@ class NspInfo:
         self._nsp_size = new_nsp_size
 
     def _extract_nsp(self) -> None:
-        # Generate path to extracted NSP directory.
+        # Generate path for the extracted NSP directory.
         self._ext_nsp_path = os.path.join(OUTPUT_PATH, f'{GIT_REV}_{utilsGetRandomString(8)}_{self._thrd_id}')
 
         # Extract files from the provided NSP.
