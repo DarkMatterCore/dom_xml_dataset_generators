@@ -1293,7 +1293,8 @@ def utilsGenerateXmlDataset(nsp_list: list[NspInfo]) -> None:
             # Get XML object index based on the current title type.
             idx = type_dict.get(title_info.type.value, None)
             if idx is None:
-                raise ValueError(f'Error: invalid content meta type value (0x{title_info.type.value:02x}).')
+                eprint(f'Error: invalid content meta type value (0x{title_info.type.value:02x}).')
+                continue
 
             # Add entry to XML object.
             xml_obj[idx].add_entry(nsp_info, title_info)
@@ -1358,7 +1359,8 @@ def utilsProcessNspDirectory() -> None:
     # Get NSP/NSZ file list.
     file_list = utilsGetNspFileList(NSP_PATH)
     if not file_list:
-        raise FileNotFoundError('Error: input directory holds no NSP/NSZ files.')
+        eprint('Error: input directory holds no NSP/NSZ files.')
+        return
 
     # Create processing threads.
     file_list_chunks: list[FileList] = list(filter(None, list(utilsGetListChunks(file_list, NUM_THREADS))))
@@ -1382,7 +1384,8 @@ def utilsProcessNspDirectory() -> None:
 
     # Check if we were able to populate our NSP list.
     if not nsp_list:
-        raise ValueError('Error: failed to process any NSP files.')
+        eprint('Error: failed to process any NSP files.')
+        return
 
     # Generate output XML dataset.
     utilsGenerateXmlDataset(nsp_list)
@@ -1480,7 +1483,7 @@ if __name__ == '__main__':
     except KeyboardInterrupt:
         time.sleep(0.2)
         eprint('\nScript interrupted.')
-    except (ValueError, FileNotFoundError) as e:
+    except ValueError as e:
         eprint(str(e))
     except Exception:
         traceback.print_exc()

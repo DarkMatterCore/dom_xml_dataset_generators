@@ -1273,7 +1273,8 @@ def utilsProcessCdnDirectory() -> None:
     # Collect information from all available Meta NCAs.
     meta_nca_infos.extend(utilsGetMetaNcaList(CDN_PATH))
     if not meta_nca_infos:
-        raise FileNotFoundError('Error: failed to locate and parse any Meta NCAs.')
+        eprint('Error: failed to locate and parse any Meta NCAs.')
+        return
 
     # Deduplicate Meta NCA list.
     meta_nca_infos = list(set(meta_nca_infos))
@@ -1302,7 +1303,8 @@ def utilsProcessCdnDirectory() -> None:
 
     # Check if we were able to populate our NSP list.
     if not nsp_gen_list:
-        raise ValueError('Error: failed to generate any NSP files.')
+        eprint('Error: failed to generate any NSP files.')
+        return
 
     # Display results.
     print('\nResults:\n', flush=True)
@@ -1403,7 +1405,7 @@ if __name__ == '__main__':
     except KeyboardInterrupt:
         time.sleep(0.2)
         eprint('\nScript interrupted.')
-    except (ValueError, FileNotFoundError) as e:
+    except ValueError as e:
         eprint(str(e))
     except Exception:
         traceback.print_exc()
