@@ -890,6 +890,7 @@ class NspInfo:
         self._nsp_filename = f'{os.path.splitext(os.path.basename(self._nsp_path))[0]}.nsp'
 
         self._is_nsz = self._nsp_path.lower().endswith('.nsz')
+        self._nsz_converted = False
         self._tmp_path = ''
 
         self._thrd_id = thrd_id
@@ -917,7 +918,7 @@ class NspInfo:
         print(f'(Thread {self._thrd_id}) Converting NSZ to NSP...', flush=True)
 
         nsz_args = ['nsz', '-D', '-o', OUTPUT_PATH, self._nsp_path]
-        new_nsp_path = os.path.join(OUTPUT_PATH, self._nsp_filename)
+        new_nsp_path = os.path.join(OUTPUT_PATH, f'{os.path.splitext(os.path.basename(self._nsp_path))[0]}.nsp')
 
         proc = subprocess.run(nsz_args, capture_output=True, encoding='utf-8')
         new_nsp_size = (os.path.getsize(new_nsp_path) if os.path.exists(new_nsp_path) else 0)
@@ -927,11 +928,13 @@ class NspInfo:
 
         self._nsp_path = new_nsp_path
         self._nsp_size = new_nsp_size
+        self._nsz_converted = True
 
     def _extract_nsp(self) -> None:
-        # Extract files from the provided NSP.
+        print(f'(Thread {self._thrd_id}) Extracting NSP...', flush=True)
+
         nsz_args = ['nsz', '-x', '-o', OUTPUT_PATH, self._nsp_path]
-        ext_nsp_path = os.path.join(OUTPUT_PATH, os.path.splitext(self._nsp_filename)[0])
+        ext_nsp_path = os.path.join(OUTPUT_PATH, os.path.splitext(os.path.basename(self._nsp_path))[0])
 
         proc = subprocess.run(nsz_args, capture_output=True, encoding='utf-8')
         if (not proc.stdout) or (proc.returncode != 0) or (not os.path.exists(ext_nsp_path)):
@@ -1013,7 +1016,7 @@ class NspInfo:
                 shutil.rmtree(self._ext_nsp_path, ignore_errors=True)
 
         # Delete NSP if the original file is a NSZ.
-        if self._is_nsz and self._ext_nsp_path:
+        if self._is_nsz and self._nsz_converted:
             os.remove(self._nsp_path)
 
         # Rename NSP, if needed.
@@ -1316,7 +1319,7 @@ def utilsProcessNspList(file_list_chunks: list[FileList], results: list[list[Nsp
 
     # Process NSP files.
     for entry in file_list:
-        print(f'(Thread {thrd_id}) Processing "{os.path.basename(entry[0])}" (0x{entry[1]:X} bytes long)...', flush=True)
+        print(f'(Thread {thrd_id}) Processing "{entry[0]}" (0x{entry[1]:X} bytes long)...', flush=True)
 
         try:
             nsp_info = NspInfo(entry, thrd_id)
