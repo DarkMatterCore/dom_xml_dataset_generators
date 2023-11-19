@@ -49,6 +49,7 @@ KEYS_PATH:       str = DEFAULT_KEYS_PATH
 CERT_PATH:       str = os.path.join('.', 'common.cert')
 OUTPUT_PATH:     str = os.path.join('.', 'out')
 PROCESS_NSP:     bool = False
+KEEP_DELTAS:     bool = False
 NUM_THREADS:     int = MAX_CPU_THREAD_COUNT
 
 HACTOOLNET_DISTRIBUTION_TYPE_REGEX  = re.compile(r'^Distribution type:\s+(.+)$', flags=(re.MULTILINE | re.IGNORECASE))
@@ -811,6 +812,11 @@ class NspGenerator:
             if not isinstance(nca_size, int):
                 continue
 
+            # Skip current content record if it references a DeltaFragment NCA and the user decided to exclude them.
+            if (not KEEP_DELTAS) and (cnt_type == 'delta_fragment'):
+                print(f'(Thread {self._thrd_id}) Skipping DeltaFragment NCA: "{nca_filename}".', flush=True)
+                continue
+
             print(f'(Thread {self._thrd_id}) Parsing {utilsCapitalizeString(cnt_type)} NCA #{packaged_content_info.info.id_offset}: "{nca_filename}".', flush=True)
 
             # Locate target NCA file.
@@ -1338,7 +1344,7 @@ def utilsValidateThreadCount(num_threads: str) -> int:
     return val
 
 def main() -> int:
-    global CDN_PATH, HACTOOLNET_PATH, KEYS_PATH, CERT_PATH, OUTPUT_PATH, PROCESS_NSP, NUM_THREADS
+    global CDN_PATH, HACTOOLNET_PATH, KEYS_PATH, CERT_PATH, OUTPUT_PATH, PROCESS_NSP, KEEP_DELTAS, NUM_THREADS
 
     # Reconfigure terminal output whenever possible.
     utilsReconfigureTerminalOutput()
@@ -1351,6 +1357,7 @@ def main() -> int:
     parser.add_argument('--cert', type=str, metavar='FILE', default='', help=f'Path to 0x{COMMON_CERT_SIZE:x}-byte long Nintendo Switch common certificate chain with SHA-256 checksum "{COMMON_CERT_HASH.upper()}". Defaults to "{CERT_PATH}".')
     parser.add_argument('--outdir', type=str, metavar='DIR', default='', help=f'Path to output directory. Defaults to "{OUTPUT_PATH}".')
     parser.add_argument('--process-nsp', action='store_true', default=PROCESS_NSP, help='Unpacks any NSP/NSZ files found within the provided CDN directory and repacks them into deterministic NSPs whenever possible. Disabled by default. Requires nsz to be installed.')
+    parser.add_argument('--keep-deltas', action='store_true', default=KEEP_DELTAS, help='Writes any available Delta Fragment NCAs referenced by Meta NCAs to the output NSPs. Disabled by default.')
     parser.add_argument('--num-threads', type=utilsValidateThreadCount, metavar='VALUE', default=NUM_THREADS, help=f'Sets the number of threads used to process CDN data. Defaults to {NUM_THREADS} if not provided. This value must not be exceeded.')
 
     print(f'{SCRIPT_NAME}.\nMade by DarkMatterCore.\n', flush=True)
@@ -1364,6 +1371,7 @@ def main() -> int:
     CERT_PATH = utilsGetPath(args.cert, CERT_PATH, True)
     OUTPUT_PATH = utilsGetPath(args.outdir, os.path.join(INITIAL_DIR, OUTPUT_PATH), False, True)
     PROCESS_NSP = args.process_nsp
+    KEEP_DELTAS = args.keep_deltas
     NUM_THREADS = args.num_threads
 
     # Validate common certificate chain.
