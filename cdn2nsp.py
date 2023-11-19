@@ -22,7 +22,6 @@ from __future__ import annotations
 
 import os, sys, re, subprocess, shutil, hashlib, random, string, glob, threading, psutil, time, argparse, io, struct, traceback, rsa
 
-from io import BytesIO
 from dataclasses import dataclass
 from typing import Generator, IO, NoReturn, TypeAlias
 
@@ -77,7 +76,7 @@ BOGUS_TITLEKEYS_PATH: str = ''
 EXT_NSP_DATA_PATH: str = ''
 
 def eprint(*args, **kwargs) -> None:
-    print(*args, file=sys.stderr, **kwargs)
+    print(*args, file=sys.stderr, flush=True, **kwargs)
 
 def utilsGetPath(path_arg: str, fallback_path: str, is_file: bool, create: bool = False) -> str:
     path = os.path.abspath(os.path.expanduser(os.path.expandvars(path_arg if path_arg else fallback_path)))
@@ -193,7 +192,7 @@ class Sha256:
 
     @classmethod
     def from_bytes(cls, data: bytes) -> Sha256:
-        fd = BytesIO(data)
+        fd = io.BytesIO(data)
         checksums = cls(fd)
         fd.close()
         return checksums
@@ -799,7 +798,7 @@ class NspGenerator:
 
         content_count = self._cnmt.header.content_count
 
-        print(f'(Thread {self._thrd_id}) Parsing {content_count} content record(s) from "{os.path.basename(self._cnmt_path)}"...', flush=True)
+        print(f'(Thread {self._thrd_id}) Processing {content_count} content record(s) from "{os.path.basename(self._cnmt_path)}"...', flush=True)
 
         # Iterate over all content records.
         for i in range(content_count):
@@ -812,7 +811,7 @@ class NspGenerator:
             if not isinstance(nca_size, int):
                 continue
 
-            print(f'(Thread {self._thrd_id}) Parsing {utilsCapitalizeString(cnt_type, " ")} NCA #{packaged_content_info.info.id_offset}: "{nca_filename}".', flush=True)
+            print(f'(Thread {self._thrd_id}) Parsing {utilsCapitalizeString(cnt_type)} NCA #{packaged_content_info.info.id_offset}: "{nca_filename}".', flush=True)
 
             # Locate target NCA file.
             nca_path = utilsLocateCdnFile(os.path.dirname(self._meta_nca.path), nca_filename, nca_size)
@@ -1021,7 +1020,7 @@ class NspGenerator:
         if not self._nsp_fd:
             return
 
-        print(f'(Thread {self._thrd_id}) Writing "{os.path.basename(path)}" (0x{os.path.getsize(path):X} bytes long)...')
+        print(f'(Thread {self._thrd_id}) Writing "{os.path.basename(path)}" (0x{os.path.getsize(path):X} bytes long)...', flush=True)
 
         # Open NCA.
         with open(path, 'rb') as fd:
@@ -1039,7 +1038,7 @@ class NspGenerator:
         if not self._nsp_fd:
             return
 
-        print(f'(Thread {self._thrd_id}) Writing "{self._cert_filename}" (0x{COMMON_CERT_SIZE:X} bytes long)...')
+        print(f'(Thread {self._thrd_id}) Writing "{self._cert_filename}" (0x{COMMON_CERT_SIZE:X} bytes long)...', flush=True)
 
         with open(CERT_PATH, 'rb') as fd:
             self._nsp_fd.write(fd.read())
@@ -1146,9 +1145,6 @@ def utilsGetMetaNcaList(path: str) -> list[NcaInfo]:
         # Update Meta NCA list.
         meta_nca_infos.append(nca_info)
 
-    # Deduplicate Meta NCA list.
-    meta_nca_infos = list(set(meta_nca_infos))
-
     return meta_nca_infos
 
 def utilsGetNspFileList(path: str) -> FileList:
@@ -1177,7 +1173,7 @@ def utilsGetNspFileList(path: str) -> FileList:
     if nsp_list:
         print(f'{len(nsp_list)} NSP/NSZ file(s) located.', flush=True)
     else:
-        print('Warning: "--process-nsp" was used, but no NSP/NSZ files could be located within the CDN directory.', flush=True)
+        eprint('Warning: "--process-nsp" was used, but no NSP/NSZ files could be located within the CDN directory.')
 
     return nsp_list
 
@@ -1191,7 +1187,7 @@ def utilsConvertNsz(nsz_path: str, tmp_path: str) -> str:
     new_nsp_size = (os.path.getsize(nsp_path) if os.path.exists(nsp_path) else 0)
 
     if (not proc.stdout) or (proc.returncode != 0) or (new_nsp_size <= 0):
-        print(f'Error: failed to convert NSZ to NSP.', flush=True)
+        eprint(f'Error: failed to convert NSZ to NSP.')
 
         if os.path.exists(nsp_path):
             os.remove(nsp_path)
@@ -1209,7 +1205,7 @@ def utilsExtractNsp(nsp_path: str, tmp_path: str) -> str:
 
     proc = subprocess.run(nsz_args, capture_output=True, encoding='utf-8')
     if (not proc.stdout) or (proc.returncode != 0) or (not os.path.exists(ext_nsp_path)):
-        print(f'Error: failed to extract NSP.', flush=True)
+        eprint(f'Error: failed to extract NSP.')
 
         if os.path.exists(ext_nsp_path):
             shutil.rmtree(ext_nsp_path, ignore_errors=True)
@@ -1254,7 +1250,7 @@ def utilsBuildMetaNcaListFromNspFiles(input_path: str, tmp_path: str) -> list[Nc
         cnt += 1
 
     if cnt <= 0:
-        print(f'Error: failed to extract any NSP(s) from the input directory.', flush=True)
+        eprint(f'Error: failed to extract any NSP(s) from the input directory.')
         return []
 
     # Return list with Meta NCA information.
@@ -1272,6 +1268,9 @@ def utilsProcessCdnDirectory() -> None:
     meta_nca_infos.extend(utilsGetMetaNcaList(CDN_PATH))
     if not meta_nca_infos:
         raise FileNotFoundError('Error: failed to locate and parse any Meta NCAs.')
+
+    # Deduplicate Meta NCA list.
+    meta_nca_infos = list(set(meta_nca_infos))
 
     print(f'{len(meta_nca_infos)} Meta NCA(s) located and parsed.\n', flush=True)
 
@@ -1300,9 +1299,9 @@ def utilsProcessCdnDirectory() -> None:
         raise ValueError('Error: failed to generate any NSP files.')
 
     # Display results.
-    print('\nResults:\n')
+    print('\nResults:\n', flush=True)
     for nsp_gen in nsp_gen_list:
-        print(f'\t- {nsp_gen.filename} (0x{os.path.getsize(nsp_gen.path)} bytes long).')
+        print(f'  - {nsp_gen.filename} (0x{os.path.getsize(nsp_gen.path)} bytes long).', flush=True)
 
 def utilsPrepareNspRequirements() -> None:
     global EXT_NSP_DATA_PATH
@@ -1397,7 +1396,7 @@ if __name__ == '__main__':
         time.sleep(0.2)
         eprint('\nScript interrupted.')
     except (ValueError, FileNotFoundError) as e:
-        print(str(e))
+        eprint(str(e))
     except Exception:
         traceback.print_exc()
 

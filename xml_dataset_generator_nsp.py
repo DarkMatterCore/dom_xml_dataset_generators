@@ -24,7 +24,6 @@ import os, sys, re, subprocess, shutil, hashlib, zlib, random, string, datetime,
 
 from functools import total_ordering
 from enum import IntEnum
-from io import BytesIO
 from dataclasses import dataclass
 from typing import Generator, IO, TypeAlias
 from html import escape as html_escape
@@ -121,7 +120,7 @@ BOGUS_TITLEKEYS_PATH: str = ''
 HASH_BLOCK_SIZE: int = 0x800000 # 8 MiB
 
 def eprint(*args, **kwargs) -> None:
-    print(*args, file=sys.stderr, **kwargs)
+    print(*args, file=sys.stderr, flush=True, **kwargs)
 
 def utilsGetPath(path_arg: str, fallback_path: str, is_file: bool, create: bool = False) -> str:
     path = os.path.abspath(os.path.expanduser(os.path.expandvars(path_arg if path_arg else fallback_path)))
@@ -239,7 +238,7 @@ class Checksums:
 
     @classmethod
     def from_bytes(cls, data: bytes) -> Checksums:
-        fd = BytesIO(data)
+        fd = io.BytesIO(data)
         checksums = cls(fd)
         fd.close()
         return checksums
@@ -679,7 +678,7 @@ class TitleInfo:
             nca_path = os.path.join(self._data_path, nca_filename)
             cnt_type = Cnmt.ContentType(packaged_content_info.info.type).name
 
-            print(f'(Thread {self._thrd_id}) Parsing {utilsCapitalizeString(cnt_type, " ")} NCA #{packaged_content_info.info.id_offset}: "{nca_filename}".', flush=True)
+            print(f'(Thread {self._thrd_id}) Parsing {utilsCapitalizeString(cnt_type)} NCA #{packaged_content_info.info.id_offset}: "{nca_filename}".', flush=True)
 
             # Check if this NCA actually exists. Don't proceed any further with the current title if this NCA isn't available.
             # We don't really care about missing DeltaFragment NCAs, though.
@@ -918,7 +917,7 @@ class NspInfo:
         print(f'(Thread {self._thrd_id}) Converting NSZ to NSP...', flush=True)
 
         nsz_args = ['nsz', '-D', '-o', OUTPUT_PATH, self._nsp_path]
-        new_nsp_path = os.path.join(OUTPUT_PATH, f'{os.path.splitext(os.path.basename(self._nsp_path))[0]}.nsp')
+        new_nsp_path = os.path.join(OUTPUT_PATH, self._nsp_filename)
 
         proc = subprocess.run(nsz_args, capture_output=True, encoding='utf-8')
         new_nsp_size = (os.path.getsize(new_nsp_path) if os.path.exists(new_nsp_path) else 0)
@@ -930,13 +929,17 @@ class NspInfo:
         self._nsp_size = new_nsp_size
 
     def _extract_nsp(self) -> None:
-        # Generate path for the extracted NSP directory.
-        self._ext_nsp_path = os.path.join(OUTPUT_PATH, f'{GIT_REV}_{utilsGetRandomString(8)}_{self._thrd_id}')
-
         # Extract files from the provided NSP.
-        proc = utilsRunHactoolnet('pfs0', ['--outdir', self._ext_nsp_path, self._nsp_path])
-        if (not proc.stdout) or (proc.returncode != 0) or (not os.path.exists(self._ext_nsp_path)):
+        nsz_args = ['nsz', '-x', '-o', OUTPUT_PATH, self._nsp_path]
+        ext_nsp_path = os.path.join(OUTPUT_PATH, os.path.splitext(self._nsp_filename)[0])
+
+        proc = subprocess.run(nsz_args, capture_output=True, encoding='utf-8')
+        if (not proc.stdout) or (proc.returncode != 0) or (not os.path.exists(ext_nsp_path)):
             raise self.Exception(f'(Thread {self._thrd_id}) Error: failed to extract NSP.')
+
+        # Rename extracted NSP directory.
+        self._ext_nsp_path = os.path.join(OUTPUT_PATH, f'{GIT_REV}_{utilsGetRandomString(8)}_{self._thrd_id}')
+        shutil.move(ext_nsp_path, self._ext_nsp_path)
 
         # Delete unnecessary files.
         files_to_delete = [fn for fn in glob.glob(os.path.join(self._ext_nsp_path, '*')) if ((not fn.lower().endswith('.nca')) and (not fn.lower().endswith('.tik')))]
@@ -1295,7 +1298,7 @@ def utilsGenerateXmlDataset(nsp_list: list[NspInfo]) -> None:
             # Add entry to XML object.
             xml_obj[idx].add_entry(nsp_info, title_info)
 
-    print()
+    print(flush=True)
 
     # Finalize all XML objects.
     for cur_xml_obj in xml_obj:
@@ -1478,7 +1481,7 @@ if __name__ == '__main__':
         time.sleep(0.2)
         eprint('\nScript interrupted.')
     except (ValueError, FileNotFoundError) as e:
-        print(str(e))
+        eprint(str(e))
     except Exception:
         traceback.print_exc()
 

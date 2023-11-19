@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-import os, sys, re, traceback, time, argparse
+import os, sys, re, traceback, time, argparse, io
 
 MESSAGE_REGEX = re.compile(r"^\(Thread (\d+)\).+", flags=(re.MULTILINE | re.IGNORECASE))
 
@@ -20,18 +20,46 @@ def utilsGetPath(path_arg: str, fallback_path: str, is_file: bool, create: bool 
 
     return path
 
+def utilsReconfigureTerminalOutput() -> None:
+    if sys.version_info >= (3, 7):
+        if isinstance(sys.stdout, io.TextIOWrapper):
+            sys.stdout.reconfigure(encoding='utf-8')
+
+        if isinstance(sys.stderr, io.TextIOWrapper):
+            sys.stderr.reconfigure(encoding='utf-8')
+
 def utilsProcessLogfile(logfile: str) -> None:
     msg: dict[int, list[str]] = {}
 
+    thrd_msg_found: bool = False
+    prev_msg: list[str] = []
+    next_msg: list[str] = []
+
+    is_cdn2nsp: bool = False
+
     with open(logfile, 'r', encoding='utf-8') as fd:
-        for _, line in enumerate(fd):
+        for idx, line in enumerate(fd):
+            if idx == 0:
+                # Check if this is a cdn2nsp logfile.
+                is_cdn2nsp = line.startswith('cdn2nsp.py')
+
             # Get current line.
             cur_line = line.strip()
 
             # Parse current line.
             thrd_id = re.search(MESSAGE_REGEX, cur_line)
             if not thrd_id:
+                line = line.strip('\r\n')
+
+                if not thrd_msg_found:
+                    prev_msg.append(line)
+                else:
+                    next_msg.append(line)
+
                 continue
+
+            if not thrd_msg_found:
+                thrd_msg_found = True
 
             thrd_id = int(thrd_id.group(1))
 
@@ -48,33 +76,49 @@ def utilsProcessLogfile(logfile: str) -> None:
     pp = pprint.PrettyPrinter(indent=4)
     pp.pprint(msg)"""
 
+    for _, v in enumerate(prev_msg):
+        print(v)
+
     for k, v in msg.items():
         print(f'Thread {k}:\n')
 
         for l, w in enumerate(v):
             space = '  '
 
-            if w.startswith('Processing'):
-                space *= 1
-                if l > 0:
-                    print('')
-            elif w.startswith('Parsing'):
-                space *= 2
+            if is_cdn2nsp:
+                if w.startswith('Extracting') or w.startswith('Processing') or w.startswith('Generating'):
+                    space *= 1
+                    if l > 0:
+                        print()
+                elif w.startswith('Parsing') or w.endswith('-byte long PFS header.') or w.startswith('Writing'):
+                    space *= 2
+                else:
+                    space *= 3
             else:
-                space *= 3
+                if w.startswith('Processing'):
+                    space *= 1
+                    if l > 0:
+                        print()
+                elif w.startswith('Parsing') or w.startswith('Converting'):
+                    space *= 2
+                else:
+                    space *= 3
 
             print(f'{space}- {w}')
 
-        print('')
+        if (k + 1) < len(msg):
+            print()
+
+    for _, v in enumerate(next_msg):
+        print(v)
 
     sys.stdout.flush()
 
 def main() -> int:
-    # Reconfigure console output.
-    sys.stdout.reconfigure(encoding='utf-8')
-    sys.stderr.reconfigure(encoding='utf-8')
+    # Reconfigure terminal output whenever possible.
+    utilsReconfigureTerminalOutput()
 
-    parser = argparse.ArgumentParser(description='Generate ordered stdout/stderr messages from a xml_dataset_generator_nsp.py logfile.')
+    parser = argparse.ArgumentParser(description='Generate ordered stdout/stderr messages from a logfile with messages from multiple threads.')
     parser.add_argument('--logfile', type=str, metavar='FILE', required=True, help='Path to logfile. Must be provided.')
 
     # Parse arguments. Make sure to escape ampersand characters in input strings.

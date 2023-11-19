@@ -1,0 +1,3 @@
+kaitaistruct==0.10
+nsz==4.5.0
+psutil==5.9.6
