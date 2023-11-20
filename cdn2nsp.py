@@ -108,6 +108,13 @@ def utilsCapitalizeString(input: str, sep: str = '') -> str:
     elem = [s.capitalize() for s in input.split('_')]
     return sep.join(elem)
 
+def utilsIsAsciiString(s: str) -> bool:
+    try:
+        s.encode('ascii')
+        return True
+    except UnicodeEncodeError:
+        return False
+
 def utilsGetListChunks(lst: list, n: int) -> Generator:
     for i in range(0, n):
         yield lst[i::n]
@@ -1234,6 +1241,14 @@ def utilsBuildMetaNcaListFromNspFiles(input_path: str, tmp_path: str) -> list[Nc
 
     for (nsp_path, _) in nsp_list:
         is_nsz = nsp_path.lower().endswith('.nsz')
+        orig_nsp_path = nsp_path
+        renamed_nsp_path = ''
+
+        # Handle filenames with non-ASCII codepoints.
+        if not utilsIsAsciiString(nsp_path):
+            renamed_nsp_path = os.path.join(os.path.dirname(nsp_path), f'{utilsGetRandomString(16)}.{"nsz" if is_nsz else "nsp"}')
+            os.rename(nsp_path, renamed_nsp_path)
+            nsp_path = renamed_nsp_path
 
         # Convert NSZ to NSP, if needed.
         if is_nsz:
@@ -1247,6 +1262,10 @@ def utilsBuildMetaNcaListFromNspFiles(input_path: str, tmp_path: str) -> list[Nc
         # Delete NSZ -> NSP conversion, if needed.
         if is_nsz:
             os.remove(nsp_path)
+
+        # Rename NSP, if needed.
+        if renamed_nsp_path:
+            os.rename(renamed_nsp_path, orig_nsp_path)
 
         # Check if the extraction went okay.
         if not ext_nsp_path:
