@@ -9,6 +9,7 @@ __pycache__
 *.xml
 *.dtd
 *.7z*
+*.txt
 *.rar
 *.nsp
 *.nsz
@@ -16,3 +17,5 @@ hactool*
 *.keys
 *.dat
 *.cert
+
+!requirements.txt
