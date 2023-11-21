@@ -20,7 +20,7 @@
 
 from __future__ import annotations
 
-import os, sys, re, subprocess, shutil, hashlib, zlib, random, string, datetime, glob, threading, psutil, time, argparse, io, traceback
+import os, sys, re, subprocess, shutil, hashlib, zlib, random, string, datetime, glob, threading, psutil, time, argparse, io, traceback, pathlib
 
 from functools import total_ordering
 from enum import IntEnum
@@ -662,7 +662,7 @@ class TitleInfo:
 
         # Make sure we're dealing with a supported title type.
         if (self._title_type.value < Cnmt.ContentMetaType.application.value) or (self._title_type.value > Cnmt.ContentMetaType.data_patch.value) or (self._title_type.value == Cnmt.ContentMetaType.delta.value):
-            raise self.Exception(f'(Thread {self._thrd_id}) Error: invalid content meta type value (0x{self._title_type.value:02x}). Skipping current title.')
+            raise self.Exception(f'(Thread {self._thrd_id}) Error: invalid content meta type value (0x{self._title_type.value:02X}). Skipping current title.')
 
     def _build_content_list(self) -> None:
         if not self._cnmt:
@@ -694,7 +694,7 @@ class TitleInfo:
             # Validate NCA size.
             nca_size = os.path.getsize(nca_path)
             if nca_size != packaged_content_info.info.raw_size:
-                raise self.Exception(f'(Thread {self._thrd_id}) Error: invalid size for "{nca_path}" (got 0x{nca_size:x}, expected 0x{packaged_content_info.info.raw_size:x}).')
+                raise self.Exception(f'(Thread {self._thrd_id}) Error: invalid size for "{nca_path}" (got 0x{nca_size:X}, expected 0x{packaged_content_info.info.raw_size:X}).')
 
             # Retrieve NCA information.
             nca_info = self._get_nca_info(nca_path, nca_size)
@@ -1094,7 +1094,7 @@ class XmlDataset:
 
         # Make sure we're dealing with a valid title type.
         if (self._type == XmlDataset.Type.APPLICATION and title_info.type != Cnmt.ContentMetaType.application) or (self._type == XmlDataset.Type.UPDATE and title_info.type != Cnmt.ContentMetaType.patch) or (self._type == XmlDataset.Type.DLC and title_info.type != Cnmt.ContentMetaType.add_on_content) or (self._type == XmlDataset.Type.DLC_UPDATE and title_info.type != Cnmt.ContentMetaType.data_patch):
-            raise ValueError(f'Error: invalid content meta type value for {self._type.normalized_name} dataset (0x{title_info.type.value:02x}).')
+            raise ValueError(f'Error: invalid content meta type value for {self._type.normalized_name} dataset (0x{title_info.type.value:02X}).')
 
         # Make sure the XML file has been opened.
         self._open_xml()
@@ -1296,7 +1296,7 @@ def utilsGenerateXmlDataset(nsp_list: list[NspInfo]) -> None:
             # Get XML object index based on the current title type.
             idx = type_dict.get(title_info.type.value, None)
             if idx is None:
-                eprint(f'Error: invalid content meta type value (0x{title_info.type.value:02x}).')
+                eprint(f'Error: invalid content meta type value (0x{title_info.type.value:02X}).')
                 continue
 
             # Add entry to XML object.
@@ -1337,9 +1337,8 @@ def utilsGetNspFileList(path: str) -> FileList:
     file_list: FileList = []
 
     # Scan directory.
-    dir_entries = glob.glob(pathname='**', root_dir=path, recursive=True)
-    for cur_path in dir_entries:
-        cur_path = os.path.join(path, cur_path)
+    for fileref in pathlib.Path(path).rglob('*'):
+        cur_path = str(fileref)
         entry_name = os.path.basename(cur_path).lower()
 
         # Skip directories and files that don't match our criteria.

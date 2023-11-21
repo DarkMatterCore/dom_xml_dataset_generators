@@ -20,7 +20,7 @@
 
 from __future__ import annotations
 
-import os, sys, re, subprocess, shutil, hashlib, random, string, glob, threading, psutil, time, argparse, io, struct, traceback, rsa
+import os, sys, re, subprocess, shutil, hashlib, random, string, glob, threading, psutil, time, argparse, io, struct, traceback, rsa, pathlib
 
 from dataclasses import dataclass
 from typing import Generator, IO, NoReturn, TypeAlias
@@ -798,7 +798,7 @@ class NspGenerator:
 
         # Make sure we're dealing with a supported title type.
         if (self._title_type.value < Cnmt.ContentMetaType.application.value) or (self._title_type.value > Cnmt.ContentMetaType.data_patch.value) or (self._title_type.value == Cnmt.ContentMetaType.delta.value):
-            raise self.Exception(f'(Thread {self._thrd_id}) Error: invalid content meta type value (0x{self._title_type.value:02x}). Skipping NSP generation for this title.')
+            raise self.Exception(f'(Thread {self._thrd_id}) Error: invalid content meta type value (0x{self._title_type.value:02X}). Skipping NSP generation for this title.')
 
     def _build_content_list(self) -> None:
         if not self._cnmt:
@@ -1166,9 +1166,8 @@ def utilsGetNspFileList(path: str) -> FileList:
     print('Building NSP/NSZ file list...', flush=True)
 
     # Scan directory.
-    dir_entries = glob.glob(pathname='**', root_dir=path, recursive=True)
-    for cur_path in dir_entries:
-        cur_path = os.path.join(path, cur_path)
+    for fileref in pathlib.Path(path).rglob('*'):
+        cur_path = str(fileref)
         entry_name = os.path.basename(cur_path).lower()
 
         # Skip directories and files that don't match our criteria.
@@ -1328,7 +1327,7 @@ def utilsProcessCdnDirectory() -> None:
     # Display results.
     print('\nResults:\n', flush=True)
     for nsp_gen in nsp_gen_list:
-        print(f'  - {nsp_gen.filename} (0x{os.path.getsize(nsp_gen.path)} bytes long).', flush=True)
+        print(f'  - {nsp_gen.filename} ({os.path.getsize(nsp_gen.path)} bytes long).', flush=True)
 
 def utilsPrepareNspRequirements() -> None:
     global EXT_NSP_DATA_PATH
@@ -1375,7 +1374,7 @@ def main() -> int:
     parser.add_argument('--cdndir', type=str, metavar='DIR', default='', help=f'Path to directory with extracted CDN data (will be processed recursively). Defaults to "{CDN_PATH}".')
     parser.add_argument('--hactoolnet', type=str, metavar='FILE', default='', help=f'Path to hactoolnet binary. Defaults to "{HACTOOLNET_PATH}".')
     parser.add_argument('--keys', type=str, metavar='FILE', default='', help=f'Path to Nintendo Switch keys file. Defaults to "{KEYS_PATH}".')
-    parser.add_argument('--cert', type=str, metavar='FILE', default='', help=f'Path to 0x{COMMON_CERT_SIZE:x}-byte long Nintendo Switch common certificate chain with SHA-256 checksum "{COMMON_CERT_HASH.upper()}". Defaults to "{CERT_PATH}".')
+    parser.add_argument('--cert', type=str, metavar='FILE', default='', help=f'Path to 0x{COMMON_CERT_SIZE:X}-byte long Nintendo Switch common certificate chain with SHA-256 checksum "{COMMON_CERT_HASH.upper()}". Defaults to "{CERT_PATH}".')
     parser.add_argument('--outdir', type=str, metavar='DIR', default='', help=f'Path to output directory. Defaults to "{OUTPUT_PATH}".')
     parser.add_argument('--process-nsp', action='store_true', default=PROCESS_NSP, help='Unpacks any NSP/NSZ files found within the provided CDN directory and repacks them into deterministic NSPs whenever possible. Disabled by default. Requires nsz to be installed.')
     parser.add_argument('--keep-deltas', action='store_true', default=KEEP_DELTAS, help='Writes any available Delta Fragment NCAs referenced by Meta NCAs to the output NSPs. Disabled by default.')
