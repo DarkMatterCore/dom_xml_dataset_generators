@@ -68,6 +68,7 @@ DEFAULT_COMMENT2: str = ''
 
 EXCLUDE_COMMENT:  bool = False
 KEEP_FOLDERS:     bool = False
+APPEND_XML_DATA:  bool = False
 NUM_THREADS:      int  = MAX_CPU_THREAD_COUNT
 
 HACTOOLNET_VERSION_REGEX            = re.compile(r'^hactoolnet (\d+\.\d+.\d+)$', flags=(re.MULTILINE | re.IGNORECASE))
@@ -1300,20 +1301,47 @@ class XmlDataset:
         if self._fd:
             return
 
-        # Open output XML file.
-        self._fd = open(self._path, 'w', encoding='utf-8-sig')
+        append = (os.path.exists(self._path) and (os.path.getsize(self._path) > (len(XML_HEADER) + len(XML_FOOTER))) and APPEND_XML_DATA)
 
-        # Write XML file header.
-        self._fd.write(XML_HEADER)
+        # Open output XML file.
+        self._fd = open(self._path, 'a+' if append else 'w', encoding='utf-8-sig')
+
+        if append:
+            offset = self._fd.tell()
+            chunk_size = len(XML_FOOTER)
+
+            while offset >= chunk_size:
+                self._fd.seek(offset - chunk_size)
+                data = self._fd.read(chunk_size)
+
+                if data == XML_FOOTER:
+                    offset -= chunk_size
+                    self._fd.truncate(offset)
+                    break
+
+                offset -= 1
+
+            if offset < chunk_size:
+                # We tried.
+                self._fd.close()
+                self._fd = open(self._path, 'w', encoding='utf-8-sig')
+                append = False
+
+        if not append:
+            # Write XML file header.
+            self._fd.write(XML_HEADER)
 
     def _get_archive_name(self, nsp_info: NspInfo, title_info: TitleInfo) -> str:
         if title_info.lang_entries:
             # Default to the first NACP language entry we found.
             archive_name = self._normalize_archive_name(title_info.lang_entries[0].name)
         else:
-            # Use the NSP filename (gross, I know, but it's either this or using an external database).
-            archive_name = self._normalize_archive_name(re.split(r'[\[\(]', os.path.splitext(nsp_info.filename)[0], 1)[0])
-            if not archive_name:
+            # Use a portion of the NSP filename, if possible (gross, I know, but it's either this or using an external database).
+            extracted_name = re.split(r'\[[a-fA-F0-9]{16}\]', nsp_info.filename, 1)[0]
+            if extracted_name != nsp_info.filename:
+                # Normalize the extracted filename.
+                archive_name = self._normalize_archive_name(extracted_name)
+            else:
                 # Fallback to just using the title ID.
                 archive_name = title_info.id
 
@@ -1511,7 +1539,7 @@ def utilsValidateThreadCount(num_threads: str) -> int:
 def main() -> int:
     global NSP_PATH, HACTOOLNET_PATH, KEYS_PATH, CERT_PATH, OUTPUT_PATH, EXCLUDE_NSP, EXCLUDE_TIK
     global DEFAULT_SECTION, DDATE_PROVIDED, DEFAULT_DDATE, RDATE_PROVIDED, DEFAULT_RDATE, DEFAULT_DUMPER, DEFAULT_PROJECT, DEFAULT_TOOL, DEFAULT_REGION
-    global EXCLUDE_COMMENT, KEEP_FOLDERS, NUM_THREADS
+    global EXCLUDE_COMMENT, KEEP_FOLDERS, APPEND_XML_DATA, NUM_THREADS
 
     # Get git commit information.
     utilsGetGitRepositoryInfo()
@@ -1539,6 +1567,7 @@ def main() -> int:
 
     parser.add_argument('--exclude-comment', action='store_true', default=EXCLUDE_COMMENT, help='Excludes information about this script from the comment2 field in XML entries. Disabled by default (comment2 fields hold information about this script).')
     parser.add_argument('--keep-folders', action='store_true', default=KEEP_FOLDERS, help='Keeps extracted NSP folders in the provided output directory. Disabled by default (all extracted folders are removed).')
+    parser.add_argument('--append-xml-data', action='store_true', default=APPEND_XML_DATA, help='Appends data to the output XMLs if they already exist instead of overwriting them. If this option is enabled and one or more of the generated XML entries are duplicates from a previous run of the script (e.g. by feeding it the same NSPs), they won\'t be taken care of. Disabled by default (all XMLs are discarded and written from scratch).')
     parser.add_argument('--num-threads', type=utilsValidateThreadCount, metavar='VALUE', default=NUM_THREADS, help=f'Sets the number of threads used to process input NSP/NSZ files. Defaults to {NUM_THREADS} if not provided. This value must not be exceeded.')
 
     print(f'{SCRIPT_NAME}.\nRevision: {GIT_REV}.\nMade by DarkMatterCore.\n', flush=True)
@@ -1566,6 +1595,7 @@ def main() -> int:
 
     EXCLUDE_COMMENT = args.exclude_comment
     KEEP_FOLDERS = args.keep_folders
+    APPEND_XML_DATA = args.append_xml_data
     NUM_THREADS = args.num_threads
 
     # Get hactoolnet version.
