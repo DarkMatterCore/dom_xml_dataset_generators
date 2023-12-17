@@ -20,7 +20,7 @@
 
 from __future__ import annotations
 
-import os, sys, re, subprocess, shutil, hashlib, zlib, random, string, datetime, glob, threading, psutil, time, argparse, io, traceback, pathlib
+import os, sys, re, subprocess, shutil, hashlib, zlib, random, string, datetime, glob, threading, psutil, time, argparse, io, traceback, pathlib, rsa, struct
 
 from functools import total_ordering
 from enum import IntEnum
@@ -49,6 +49,7 @@ DEFAULT_KEYS_PATH: str = os.path.join('~', '.switch', 'prod.keys')
 NSP_PATH:        str = os.path.join('.', 'nsp')
 HACTOOLNET_PATH: str = os.path.join('.', ('hactoolnet.exe' if os.name == 'nt' else 'hactoolnet'))
 KEYS_PATH:       str = DEFAULT_KEYS_PATH
+CERT_PATH:       str = os.path.join('.', 'common.cert')
 OUTPUT_PATH:     str = os.path.join('.', 'out')
 EXCLUDE_NSP:     bool = False
 EXCLUDE_TIK:     bool = False
@@ -79,6 +80,7 @@ HACTOOLNET_SAVING_REGEX             = re.compile(r'^section\d+:/(.+\.cnmt)$', fl
 HACTOOLNET_MISSING_TITLEKEY_REGEX   = re.compile(r'Missing NCA title key', flags=(re.MULTILINE | re.IGNORECASE))
 HACTOOLNET_ALT_RIGHTS_ID_REGEX      = re.compile(r'Title key for rights ID ([0-9a-f]{32})$', flags=(re.MULTILINE | re.IGNORECASE))
 HACTOOLNET_DECRYPTED_TITLEKEY_REGEX = re.compile(r'^Titlekey \(Decrypted\)(?: \(From CLI\))?:?\s+([0-9a-f]{32})$', flags=(re.MULTILINE | re.IGNORECASE))
+HACTOOLNET_MKEY_REVISION_REGEX      = re.compile(r'^Master Key Revision:\s+(\d+)\s+\([^\)]+\)$', flags=(re.MULTILINE | re.IGNORECASE))
 
 NCA_DISTRIBUTION_TYPE: str = 'download'
 
@@ -118,6 +120,9 @@ HACTOOLNET_VERSION: str = ''
 BOGUS_TITLEKEYS_PATH: str = ''
 
 HASH_BLOCK_SIZE: int = 0x800000 # 8 MiB
+
+COMMON_CERT_SIZE: int = 0x700
+COMMON_CERT_HASH: str = '3c4f20dca231655e90c75b3e9689e4dd38135401029ab1f2ea32d1c2573f1dfe' # SHA-256
 
 def eprint(*args, **kwargs) -> None:
     print(*args, file=sys.stderr, flush=True, **kwargs)
@@ -456,15 +461,25 @@ class TikInfo:
     def dec_titlekey(self) -> TitleKeyInfo | None:
         return self._dec_titlekey
 
+    @property
+    def valid_sig(self) -> bool:
+        return self._valid_sig
+
     def __init__(self, rights_id: str, data_path: str, nca_path: str, thrd_id: int) -> None:
         # Populate class variables.
         self._populate_vars(rights_id, data_path, nca_path, thrd_id)
 
-        # Parse encrypted titlekey from ticket file.
-        self._get_encrypted_titlekey()
+        # Parse encrypted titlekey from the provided ticket file.
+        self._get_enc_tk()
 
-        # Get decrypted titlekey.
-        self._get_decrypted_titlekey()
+        # Verify ticket signature.
+        self._verify_tik_sig()
+
+        # Get decrypted titlekey and key generation using the provided NCA.
+        self._get_dec_tk_and_key_gen()
+
+        # Perform an aggressive validation of the ticket data structure.
+        self._validate_tik()
 
     def _populate_vars(self, rights_id: str, data_path: str, nca_path: str, thrd_id: int) -> None:
         self._rights_id = rights_id.lower()
@@ -484,7 +499,10 @@ class TikInfo:
         self._enc_titlekey: TitleKeyInfo | None = None
         self._dec_titlekey: TitleKeyInfo | None = None
 
-    def _get_encrypted_titlekey(self) -> None:
+        self._key_generation = 0
+        self._valid_sig = False
+
+    def _get_enc_tk(self) -> None:
         # Make sure the ticket file exists.
         if not self._tik_size:
             raise self.Exception(f'(Thread {self._thrd_id}) Error: unable to locate ticket file "{self._tik_path}". Skipping current title.')
@@ -496,18 +514,50 @@ class TikInfo:
             # Reraise the exception as a TikInfo.Exception.
             raise self.Exception(str(e))
 
+        # Make sure the ticket uses a RSA-2048-PKCS#1 v1.5 + SHA-256 signature.
+        if tik.sig_type != Tik.SignatureType.rsa2048_sha256:
+            raise self.Exception(f'(Thread {self._thrd_id}) Error: ticket "{self._tik_filename}" doesn\'t use a RSA-2048-PKCS#1 v1.5 + SHA-256 signature. Skipping current title.')
+
         # Make sure the ticket uses common crypto.
         if tik.titlekey_type != Tik.TitlekeyType.common:
             raise self.Exception(f'(Thread {self._thrd_id}) Error: ticket "{self._tik_filename}" doesn\'t use common crypto. Skipping current title.')
 
-        # Save encrypted titlekey.
-        enc_titlekey = tik.titlekey_block[:16].hex().lower()
-        self._enc_titlekey = TitleKeyInfo(enc_titlekey, self._rights_id, self._data_path, False)
+        # Load encrypted titlekey right away.
+        self._enc_titlekey = TitleKeyInfo(tik.titlekey_block[:16].hex().lower(), self._rights_id, self._data_path, False)
 
         # Close ticket.
         tik.close()
 
-    def _get_decrypted_titlekey(self) -> None:
+    def _verify_tik_sig(self) -> None:
+        # Read RSA public key from the certificate chain.
+        with open(CERT_PATH, 'rb') as fd:
+            fd.seek(0x5C8)
+            modulus = int.from_bytes(fd.read(0x100), 'big')
+            pub_exp = int.from_bytes(fd.read(0x4), 'big')
+
+        pub_key = rsa.PublicKey(modulus, pub_exp)
+
+        # Read signature and message from the ticket itself.
+        with open(self._tik_path, 'rb') as fd:
+            fd.seek(0x4)
+            signature = fd.read(0x100)
+
+            fd.seek(0x140)
+            message = fd.read()
+
+        try:
+            # Verify ticket signature.
+            rsa.verify(message, signature, pub_key)
+        except rsa.VerificationError:
+            # Invalid signature.
+            self._valid_sig = False
+        else:
+            # Valid signature. We'll keep the ticket untouched.
+            self._valid_sig = True
+
+        print(f'(Thread {self._thrd_id}) Signature for common ticket "{self._tik_filename}" is {"valid" if self._valid_sig else "invalid"}.', flush=True)
+
+    def _get_dec_tk_and_key_gen(self) -> None:
         if not self._enc_titlekey:
             return
 
@@ -515,15 +565,64 @@ class TikInfo:
         proc = utilsRunHactoolnet('nca', ['--titlekey', self._enc_titlekey.value, self._nca_path])
         hactoolnet_stderr = proc.stderr.strip()
         if (not proc.stdout) or (proc.returncode != 0):
-            raise self.Exception(f'(Thread {self._thrd_id}) Failed to get decrypted titlekey{f" ({hactoolnet_stderr})" if hactoolnet_stderr else ""}.')
+            raise self.Exception(f'(Thread {self._thrd_id}) Failed to retrieve NCA info for ticket{f" ({hactoolnet_stderr})" if hactoolnet_stderr else ""}. Skipping current title.')
 
         dec_titlekey = re.search(HACTOOLNET_DECRYPTED_TITLEKEY_REGEX, proc.stdout)
-        dec_titlekey = (dec_titlekey.group(1).lower() if dec_titlekey else '')
-        if not dec_titlekey:
-            raise self.Exception(f'(Thread {self._thrd_id}) Failed to parse decrypted titlekey from hactoolnet output{f" ({hactoolnet_stderr})" if hactoolnet_stderr else ""}.')
+        nca_key_generation = re.search(HACTOOLNET_MKEY_REVISION_REGEX, proc.stdout)
 
-        # Save decrypted titlekey.
+        if (not dec_titlekey) or (not nca_key_generation):
+            raise self.Exception(f'(Thread {self._thrd_id}) Failed to parse plaintext keydata from hactoolnet output. Skipping current title.')
+
+        dec_titlekey = dec_titlekey.group(1).lower()
+        nca_key_generation = int(nca_key_generation.group(1))
+
+        if nca_key_generation > 0:
+            # Convert back to a true NCA key generation value.
+            nca_key_generation += 1
+
+        # Validate key generation value.
+        key_gen_rid = int.from_bytes(bytes.fromhex(self._rights_id[-2:]), 'little', signed=False)
+        old_key_gen = (nca_key_generation < 3)
+
+        if (old_key_gen and key_gen_rid) or ((not old_key_gen) and key_gen_rid != nca_key_generation):
+            expected_key_gen = (0 if old_key_gen else nca_key_generation)
+            raise self.Exception(f'(Thread {self._thrd_id}) Error: invalid rights ID key generation! Got 0x{key_gen_rid:02X}, expected 0x{expected_key_gen:02X}. Skipping current title.')
+
+        # Save values.
         self._dec_titlekey = TitleKeyInfo(dec_titlekey, self._rights_id, self._data_path, True)
+        self._key_generation = nca_key_generation
+
+    def _validate_tik(self) -> None:
+        # Return right away if we're dealing with a valid signature.
+        if self._valid_sig or (not self._enc_titlekey):
+            return
+
+        # Serialize a new common ticket.
+        tik = struct.pack('<I', Tik.SignatureType.rsa2048_sha256.value)
+        tik += b'\xFF' * 0x100
+        tik += b'\x00' * 0x3C
+
+        tik += struct.pack('64s', b'Root-CA00000003-XS00000020')
+
+        tik += self._enc_titlekey.raw_value
+        tik += b'\x00' * 0xF0
+
+        tik += struct.pack('<BBHBBH8xQQ', 2, Tik.TitlekeyType.common.value, 0, Tik.LicenseType.permanent.value, self._key_generation, 0, 0, 0)
+        tik += bytes.fromhex(self._rights_id)
+        tik += struct.pack('<IIIHH', 0, 0, 0x2C0, 0, 0)
+
+        # Read provided ticket file.
+        with open(self._tik_path, 'rb') as fd:
+            orig_tik = fd.read()
+
+        # Compare sizes.
+        if len(orig_tik) != len(tik):
+            raise self.Exception(f'(Thread {self._thrd_id}) Error: invalid size for tampered ticket file "{self._tik_path}"! Got 0x{self._tik_size:X}, expected 0x{len(tik):X}. Skipping current title.')
+
+        # Compare data.
+        for i, val in enumerate(tik):
+            if orig_tik[i] != val:
+                raise self.Exception(f'(Thread {self._thrd_id}) Error: invalid value for byte at offset 0x{i:03X} in ticket "{self._tik_filename}"! Got 0x{orig_tik[i]:02X}, expected 0x{val:02X}. Skipping current title.')
 
 @dataclass(init=False)
 class NacpLanguageEntry:
@@ -1392,6 +1491,17 @@ def utilsProcessNspDirectory() -> None:
     # Generate output XML dataset.
     utilsGenerateXmlDataset(nsp_list)
 
+def utilsValidateCommonCertChain() -> None:
+    # Validate certificate chain size.
+    cert_chain_size = os.path.getsize(CERT_PATH)
+    if cert_chain_size != COMMON_CERT_SIZE:
+        raise ValueError(f'Invalid common certificate chain size (got 0x{cert_chain_size:X}, expected 0x{COMMON_CERT_SIZE:X}).')
+
+    # Validate certificate chain checksum.
+    cert_chain_hash = Checksums.from_path(CERT_PATH).sha256
+    if cert_chain_hash != COMMON_CERT_HASH:
+        raise ValueError(f'Invalid common certificate SHA-256 checksum (got "{cert_chain_hash.upper()}", expected "{COMMON_CERT_HASH}").')
+
 def utilsValidateThreadCount(num_threads: str) -> int:
     val = int(num_threads)
     if (val <= 0) or (val > MAX_CPU_THREAD_COUNT):
@@ -1399,7 +1509,7 @@ def utilsValidateThreadCount(num_threads: str) -> int:
     return val
 
 def main() -> int:
-    global NSP_PATH, HACTOOLNET_PATH, KEYS_PATH, OUTPUT_PATH, EXCLUDE_NSP, EXCLUDE_TIK
+    global NSP_PATH, HACTOOLNET_PATH, KEYS_PATH, CERT_PATH, OUTPUT_PATH, EXCLUDE_NSP, EXCLUDE_TIK
     global DEFAULT_SECTION, DDATE_PROVIDED, DEFAULT_DDATE, RDATE_PROVIDED, DEFAULT_RDATE, DEFAULT_DUMPER, DEFAULT_PROJECT, DEFAULT_TOOL, DEFAULT_REGION
     global EXCLUDE_COMMENT, KEEP_FOLDERS, NUM_THREADS
 
@@ -1414,6 +1524,7 @@ def main() -> int:
     parser.add_argument('--nspdir', type=str, metavar='DIR', default='', help=f'Path to directory with NSP files. Defaults to "{NSP_PATH}".')
     parser.add_argument('--hactoolnet', type=str, metavar='FILE', default='', help=f'Path to hactoolnet binary. Defaults to "{HACTOOLNET_PATH}".')
     parser.add_argument('--keys', type=str, metavar='FILE', default='', help=f'Path to Nintendo Switch keys file. Defaults to "{KEYS_PATH}".')
+    parser.add_argument('--cert', type=str, metavar='FILE', default='', help=f'Path to 0x{COMMON_CERT_SIZE:X}-byte long Nintendo Switch common certificate chain with SHA-256 checksum "{COMMON_CERT_HASH.upper()}". Used to validate RSA signatures from tickets. Defaults to "{CERT_PATH}".')
     parser.add_argument('--outdir', type=str, metavar='DIR', default='', help=f'Path to output directory. Defaults to "{OUTPUT_PATH}".')
     parser.add_argument('--exclude-nsp', action='store_true', default=EXCLUDE_NSP, help='Excludes NSP metadata from the output XML dataset. Disabled by default.')
     parser.add_argument('--exclude-tik', action='store_true', default=EXCLUDE_TIK, help='Excludes ticket metadata from the output XML dataset. Disabled by default.')
@@ -1438,6 +1549,7 @@ def main() -> int:
     NSP_PATH = utilsGetPath(args.nspdir, os.path.join(INITIAL_DIR, NSP_PATH), False)
     HACTOOLNET_PATH = utilsGetPath(args.hactoolnet, os.path.join(INITIAL_DIR, HACTOOLNET_PATH), True)
     KEYS_PATH = utilsGetPath(args.keys, KEYS_PATH, True)
+    CERT_PATH = utilsGetPath(args.cert, CERT_PATH, True)
     OUTPUT_PATH = utilsGetPath(args.outdir, os.path.join(INITIAL_DIR, OUTPUT_PATH), False, True)
     EXCLUDE_NSP = args.exclude_nsp
     EXCLUDE_TIK = args.exclude_tik
@@ -1462,6 +1574,9 @@ def main() -> int:
     # Check if nsz has been installed.
     if not shutil.which('nsz'):
         raise ValueError('Error: "nsz" package unavailable.')
+
+    # Validate common certificate chain.
+    utilsValidateCommonCertChain()
 
     # Copy keys file (required by nsz since it offers no way to provide a keys file path).
     utilsCopyKeysFile()

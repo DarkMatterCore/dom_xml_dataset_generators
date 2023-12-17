@@ -291,10 +291,8 @@ class NcaInfo:
     def __hash__(self) -> int:
         return hash(self._sha256)
 
-    def __eq__(self, other: NcaInfo) -> bool:
-        if isinstance(other, NcaInfo):
-            return (self._sha256 == other.sha256)
-        return NotImplemented
+    def __eq__(self, other) -> bool:
+        return ((self._sha256 == other.sha256) if isinstance(other, NcaInfo) else False)
 
     def _populate_vars(self, nca_path: str, nca_size: int, enc_titlekey: str, thrd_id: int, expected_cnt_type: str) -> None:
         self._nca_path = nca_path
@@ -405,10 +403,6 @@ class TikInfo:
         return self._tik_size
 
     @property
-    def valid_sig(self) -> bool:
-        return self._valid_sig
-
-    @property
     def enc_titlekey(self) -> TitleKeyInfo | None:
         return self._enc_titlekey
 
@@ -416,17 +410,21 @@ class TikInfo:
     def dec_titlekey(self) -> TitleKeyInfo | None:
         return self._dec_titlekey
 
+    @property
+    def valid_sig(self) -> bool:
+        return self._valid_sig
+
     def __init__(self, rights_id: str, base_path: str, nca_path: str, thrd_id: int) -> None:
         # Populate class variables.
         self._populate_vars(rights_id, base_path, nca_path, thrd_id)
 
-        # Validate ticket file structure.
-        self._validate_tik()
+        # Parse encrypted titlekey from the provided ticket file.
+        self._get_enc_tk()
 
         # Verify ticket signature.
         self._verify_tik_sig()
 
-        # Get decrypted titlekey and key generation.
+        # Get decrypted titlekey and key generation using the provided NCA.
         self._get_dec_tk_and_key_gen()
 
         # Fix tampered ticket, if needed.
@@ -448,7 +446,7 @@ class TikInfo:
         self._key_generation = 0
         self._valid_sig = False
 
-    def _validate_tik(self) -> None:
+    def _get_enc_tk(self) -> None:
         # Make sure the ticket file exists.
         if not self._tik_path:
             raise self.Exception(f'(Thread {self._thrd_id}) Error: unable to locate ticket file "{self._tik_filename}". Skipping NSP generation for this title.')
@@ -460,9 +458,9 @@ class TikInfo:
             # Reraise the exception as a TikInfo.Exception.
             raise self.Exception(str(e))
 
-        # Make sure the ticket uses a RSA-2048 PKCS#1 v1.5 + SHA-256 signature.
+        # Make sure the ticket uses a RSA-2048-PKCS#1 v1.5 + SHA-256 signature.
         if tik.sig_type != Tik.SignatureType.rsa2048_sha256:
-            raise self.Exception(f'(Thread {self._thrd_id}) Error: ticket "{self._tik_filename}" doesn\'t use a RSA-2048 PKCS#1 v1.5 + SHA-256 signature. Skipping NSP generation for this title.')
+            raise self.Exception(f'(Thread {self._thrd_id}) Error: ticket "{self._tik_filename}" doesn\'t use a RSA-2048-PKCS#1 v1.5 + SHA-256 signature. Skipping NSP generation for this title.')
 
         # Make sure the ticket uses common crypto.
         if tik.titlekey_type != Tik.TitlekeyType.common:
@@ -511,16 +509,17 @@ class TikInfo:
         proc = utilsRunHactoolnet('nca', ['--titlekey', self._enc_titlekey.value, self._nca_path])
         hactoolnet_stderr = proc.stderr.strip()
         if (not proc.stdout) or (proc.returncode != 0):
-            raise self.Exception(f'(Thread {self._thrd_id}) Failed to retrieve NCA info for ticket {f" ({hactoolnet_stderr})" if hactoolnet_stderr else ""}. Skipping NSP generation for this title.')
+            raise self.Exception(f'(Thread {self._thrd_id}) Failed to retrieve NCA info for ticket{f" ({hactoolnet_stderr})" if hactoolnet_stderr else ""}. Skipping NSP generation for this title.')
 
         dec_titlekey = re.search(HACTOOLNET_DECRYPTED_TITLEKEY_REGEX, proc.stdout)
         nca_key_generation = re.search(HACTOOLNET_MKEY_REVISION_REGEX, proc.stdout)
 
         if (not dec_titlekey) or (not nca_key_generation):
-            raise self.Exception(f'(Thread {self._thrd_id}) Failed to parse hactoolnet output. Skipping NSP generation for this title.')
+            raise self.Exception(f'(Thread {self._thrd_id}) Failed to parse plaintext keydata from hactoolnet output. Skipping NSP generation for this title.')
 
         dec_titlekey = dec_titlekey.group(1).lower()
         nca_key_generation = int(nca_key_generation.group(1))
+
         if nca_key_generation > 0:
             # Convert back to a true NCA key generation value.
             nca_key_generation += 1
@@ -555,6 +554,7 @@ class TikInfo:
         tik += bytes.fromhex(self._rights_id)
         tik += struct.pack('<IIIHH', 0, 0, 0x2C0, 0, 0)
 
+        # Write common ticket.
         with open(self._tik_path, 'wb') as fd:
             fd.write(tik)
 
@@ -1374,7 +1374,7 @@ def main() -> int:
     parser.add_argument('--cdndir', type=str, metavar='DIR', default='', help=f'Path to directory with extracted CDN data (will be processed recursively). Defaults to "{CDN_PATH}".')
     parser.add_argument('--hactoolnet', type=str, metavar='FILE', default='', help=f'Path to hactoolnet binary. Defaults to "{HACTOOLNET_PATH}".')
     parser.add_argument('--keys', type=str, metavar='FILE', default='', help=f'Path to Nintendo Switch keys file. Defaults to "{KEYS_PATH}".')
-    parser.add_argument('--cert', type=str, metavar='FILE', default='', help=f'Path to 0x{COMMON_CERT_SIZE:X}-byte long Nintendo Switch common certificate chain with SHA-256 checksum "{COMMON_CERT_HASH.upper()}". Defaults to "{CERT_PATH}".')
+    parser.add_argument('--cert', type=str, metavar='FILE', default='', help=f'Path to 0x{COMMON_CERT_SIZE:X}-byte long Nintendo Switch common certificate chain with SHA-256 checksum "{COMMON_CERT_HASH.upper()}". Used to validate RSA signatures from tickets. Defaults to "{CERT_PATH}".')
     parser.add_argument('--outdir', type=str, metavar='DIR', default='', help=f'Path to output directory. Defaults to "{OUTPUT_PATH}".')
     parser.add_argument('--process-nsp', action='store_true', default=PROCESS_NSP, help='Unpacks any NSP/NSZ files found within the provided CDN directory and repacks them into deterministic NSPs whenever possible. Disabled by default. Requires nsz to be installed.')
     parser.add_argument('--keep-deltas', action='store_true', default=KEEP_DELTAS, help='Writes any available Delta Fragment NCAs referenced by Meta NCAs to the output NSPs. Disabled by default.')
