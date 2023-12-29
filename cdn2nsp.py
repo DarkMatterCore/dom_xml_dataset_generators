@@ -992,7 +992,7 @@ class NspGenerator:
 
         version = (f' {self._display_version} ' if (self._display_version and self._title_type == Cnmt.ContentMetaType.patch) else ' ')
 
-        return f'{self._normalize_fs_str(name)}{version}[{self._title_id.upper()}][v{self._title_version}][{filename_type_strings.get(self._title_type.value)}].nsp'
+        return self._normalize_fs_str(f'{name}{version}[{self._title_id.upper()}][v{self._title_version}][{filename_type_strings.get(self._title_type.value)}].nsp')
 
     def _normalize_fs_str(self, name: str) -> str:
         # Replace illegal filesystem characters with underscores.
