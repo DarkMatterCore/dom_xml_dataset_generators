@@ -415,7 +415,7 @@ class TitleKeyInfo:
 
     def __init__(self, titlekey: str, rights_id: str, data_path: str, is_decrypted: bool) -> None:
         # Populate properties.
-        self.filename = f'{rights_id}.{"dec" if is_decrypted else "enc"}titlekey.tik'
+        self.filename = f'{rights_id}.{"dec" if is_decrypted else "enc"}titlekey.bin'
         self.path = os.path.join(data_path, self.filename)
         self.rights_id = rights_id
         self.value = titlekey
