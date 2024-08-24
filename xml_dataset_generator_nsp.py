@@ -1200,6 +1200,7 @@ class NspInfo:
     def _standard_nsp_check(self) -> None:
         # Short-circuit: return right away if we've been dealing with a multi-title NSP.
         if self._meta_nca_count != 1:
+            print(f'(Thread {self._thrd_id}) Input NSP holds more than one title. This is not a standard NSP.', flush=True)
             return
 
         # Get title info.
