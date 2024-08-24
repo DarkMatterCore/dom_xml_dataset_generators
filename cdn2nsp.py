@@ -3,7 +3,7 @@
 """
  * cdn2nsp.py
  *
- * Copyright (c) 2023, DarkMatterCore <pabloacurielz@gmail.com>.
+ * Copyright (c) 2023 - 2024, DarkMatterCore <pabloacurielz@gmail.com>.
  *
  * Permission to use, copy, modify, and/or distribute this software for any
  * purpose with or without fee is hereby granted, provided that the above
@@ -255,6 +255,14 @@ class NcaInfo:
         self._cnt_type = cnt_type
 
     @property
+    def id_offset(self) -> int:
+        return self._id_offset
+
+    @id_offset.setter
+    def id_offset(self, id_offset: int) -> None:
+        self._id_offset = id_offset
+
+    @property
     def crypto_type(self) -> str:
         return self._crypto_type
 
@@ -306,6 +314,7 @@ class NcaInfo:
 
         self._dist_type = ''
         self._cnt_type = ''
+        self._id_offset = 0
         self._crypto_type = ''
         self._rights_id = ''
         self._valid = False
@@ -587,8 +596,8 @@ class PartitionFileSystem:
         def __len__(self) -> int:
             return 0x10
 
-        def serialize(self) -> bytes:
-            return struct.pack('<4sIII', 'PFS0'.encode(), self.entry_count & 0xFFFFFFFF, self.name_table_size & 0xFFFFFFFF, 0)
+        def serialize(self, name_table_padding_size: int) -> bytes:
+            return struct.pack('<4sIII', 'PFS0'.encode(), self.entry_count & 0xFFFFFFFF, (self.name_table_size + name_table_padding_size) & 0xFFFFFFFF, 0)
 
     @dataclass
     class Entry:
@@ -614,7 +623,7 @@ class PartitionFileSystem:
 
     def add_entry(self, name: str, size: int) -> None:
         if (not name) or (size <= 0):
-            raise NspGenerator.Exception(f'(Thread {self._thrd_id}) Error: invalid arguments for new PFS entry.')
+            raise self.Exception(f'(Thread {self._thrd_id}) Error: invalid arguments for new PFS entry.')
 
         # Generate new PFS entry.
         entry = PartitionFileSystem.Entry(self._cur_entry_offset, size, self._cur_name_offset)
@@ -633,23 +642,23 @@ class PartitionFileSystem:
         self._cur_entry_offset += size
         self._cur_name_offset = len(self._name_table)
 
+    def get_total_size(self) -> int:
+        return (self._get_header_sizes()[1] + self._cur_entry_offset)
+
     def serialize(self) -> bytes:
         if (self._header.entry_count <= 0) or (self._header.name_table_size <= 0) or (len(self._entries) != self._header.entry_count) or (not self._name_table):
             raise self.Exception(f'(Thread {self._thrd_id}) Error: unable to serialize empty PFS object.')
 
         raw_header: bytes = b''
 
-        # Calculate header size.
-        header_size = (len(self._header) + (len(self._entries) * len(self._entries[0])) + len(self._name_table))
+        # Get unpadded and padded header sizes.
+        (header_size, padded_header_size) = self._get_header_sizes()
 
-        # Calculate padded header size and padding size.
-        padded_header_size = ((header_size + PFS_FULL_HEADER_ALIGNMENT) if utilsIsAligned(header_size, PFS_FULL_HEADER_ALIGNMENT) else utilsAlignUp(header_size, PFS_FULL_HEADER_ALIGNMENT))
+        # Calculate padding size.
         padding_size = (padded_header_size - header_size)
 
         # Serialize full header.
-        self._header.name_table_size += padding_size
-        raw_header += self._header.serialize()
-        self._header.name_table_size -= padding_size
+        raw_header += self._header.serialize(padding_size)
 
         for entry in self._entries:
             raw_header += entry.serialize()
@@ -659,6 +668,11 @@ class PartitionFileSystem:
         raw_header += (b'\x00' * padding_size)
 
         return raw_header
+
+    def _get_header_sizes(self) -> tuple[int, int]:
+        header_size = (len(self._header) + (len(self._entries) * len(self._entries[0])) + len(self._name_table))
+        padded_header_size = ((header_size + PFS_FULL_HEADER_ALIGNMENT) if utilsIsAligned(header_size, PFS_FULL_HEADER_ALIGNMENT) else utilsAlignUp(header_size, PFS_FULL_HEADER_ALIGNMENT))
+        return (header_size, padded_header_size)
 
 class NspGenerator:
     class Exception(Exception):
@@ -849,12 +863,18 @@ class NspGenerator:
             # Replace NCA info's content type with the type stored in the CNMT, because it's more descriptive.
             nca_info.cnt_type = cnt_type
 
+            # Set NCA info's ID offset value.
+            nca_info.id_offset = packaged_content_info.info.id_offset
+
             # Update contents list.
             self._contents.append(nca_info)
 
             # Extract and parse NACP if we're dealing with the first control NCA.
             if (packaged_content_info.info.type == Cnmt.ContentType.control) and (packaged_content_info.info.id_offset == 0) and (not self._nacp):
                 self._extract_and_parse_nacp(nca_info)
+
+        # Sort contents list by content type and ID offset.
+        self._contents = sorted(self._contents, key=lambda x: (x.cnt_type, x.id_offset))
 
         # Append Meta NCA to the list.
         self._contents.append(self._meta_nca)

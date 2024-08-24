@@ -3,7 +3,7 @@
 """
  * xml_dataset_generator_nsp.py
  *
- * Copyright (c) 2022 - 2023, DarkMatterCore <pabloacurielz@gmail.com>.
+ * Copyright (c) 2022 - 2024, DarkMatterCore <pabloacurielz@gmail.com>.
  *
  * Permission to use, copy, modify, and/or distribute this software for any
  * purpose with or without fee is hereby granted, provided that the above
@@ -125,6 +125,8 @@ HASH_BLOCK_SIZE: int = 0x800000 # 8 MiB
 COMMON_CERT_SIZE: int = 0x700
 COMMON_CERT_HASH: str = '3c4f20dca231655e90c75b3e9689e4dd38135401029ab1f2ea32d1c2573f1dfe' # SHA-256
 
+PFS_FULL_HEADER_ALIGNMENT: int = 0x20
+
 def eprint(*args, **kwargs) -> None:
     print(*args, file=sys.stderr, flush=True, **kwargs)
 
@@ -138,6 +140,15 @@ def utilsGetPath(path_arg: str, fallback_path: str, is_file: bool, create: bool 
         raise ValueError(f'Error: "{path}" points to an invalid file/directory.')
 
     return path
+
+def utilsIsAligned(value: int, alignment: int) -> bool:
+    return ((value & (alignment - 1)) == 0)
+
+def utilsBitwiseNot(value: int, numbits: int):
+    return ((1 << numbits) - 1 - value)
+
+def utilsAlignUp(value: int, alignment: int, numbits: int = 32) -> int:
+    return ((value + (alignment - 1)) & utilsBitwiseNot(alignment - 1, numbits))
 
 def utilsGetRandomString(length: int) -> str:
     letters = string.ascii_lowercase
@@ -308,6 +319,14 @@ class NcaInfo:
         self._cnt_type = cnt_type
 
     @property
+    def id_offset(self) -> int:
+        return self._id_offset
+
+    @id_offset.setter
+    def id_offset(self, id_offset: int) -> None:
+        self._id_offset = id_offset
+
+    @property
     def crypto_type(self) -> str:
         return self._crypto_type
 
@@ -349,6 +368,7 @@ class NcaInfo:
 
         self._dist_type = ''
         self._cnt_type = ''
+        self._id_offset = 0
         self._crypto_type = ''
         self._rights_id = ''
         self._valid = False
@@ -806,12 +826,18 @@ class TitleInfo:
             # Replace NCA info's content type with the type stored in the CNMT, because it's more descriptive.
             nca_info.cnt_type = cnt_type
 
+            # Set NCA info's ID offset value.
+            nca_info.id_offset = packaged_content_info.info.id_offset
+
             # Update contents list.
             self._contents.append(nca_info)
 
             # Extract and parse NACP if we're dealing with the first control NCA.
             if (packaged_content_info.info.type == Cnmt.ContentType.control) and (packaged_content_info.info.id_offset == 0) and (not self._nacp):
                 self._extract_and_parse_nacp(nca_info)
+
+        # Sort contents list by content type and ID offset.
+        self._contents = sorted(self._contents, key=lambda x: (x.cnt_type, x.id_offset))
 
         # Append Meta NCA to the list.
         self._contents.append(self._meta_nca)
@@ -931,6 +957,97 @@ class TitleInfo:
         #print('title: __del__ called', flush=True)
         self._cleanup()
 
+class PartitionFileSystem:
+    class Exception(Exception):
+        def __init__(self, msg: str) -> None:
+            super().__init__(msg)
+
+    @dataclass(init=False)
+    class Header:
+        entry_count: int = 0
+        name_table_size: int = 0
+
+        def __len__(self) -> int:
+            return 0x10
+
+        def serialize(self, name_table_padding_size: int) -> bytes:
+            return struct.pack('<4sIII', 'PFS0'.encode(), self.entry_count & 0xFFFFFFFF, (self.name_table_size + name_table_padding_size) & 0xFFFFFFFF, 0)
+
+    @dataclass
+    class Entry:
+        offset: int = 0
+        size: int = 0
+        name_offset: int = 0
+
+        def __len__(self) -> int:
+            return 0x18
+
+        def serialize(self) -> bytes:
+            return struct.pack('<QQII', self.offset & 0xFFFFFFFFFFFFFFFF, self.size & 0xFFFFFFFFFFFFFFFF, self.name_offset & 0xFFFFFFFF, 0)
+
+    def __init__(self, thrd_id: int) -> None:
+        self._header = PartitionFileSystem.Header()
+        self._entries: list[PartitionFileSystem.Entry] = []
+        self._name_table: bytes = b''
+
+        self._cur_entry_offset: int = 0
+        self._cur_name_offset: int = 0
+
+        self._thrd_id = thrd_id
+
+    def add_entry(self, name: str, size: int) -> None:
+        if (not name) or (size <= 0):
+            raise self.Exception(f'(Thread {self._thrd_id}) Error: invalid arguments for new PFS entry.')
+
+        # Generate new PFS entry.
+        entry = PartitionFileSystem.Entry(self._cur_entry_offset, size, self._cur_name_offset)
+
+        # Update PFS entry list.
+        self._entries.append(entry)
+
+        # Update name table.
+        self._name_table += name.encode('utf-8') + b'\x00'
+
+        # Update header.
+        self._header.entry_count += 1
+        self._header.name_table_size = len(self._name_table)
+
+        # Update offsets.
+        self._cur_entry_offset += size
+        self._cur_name_offset = len(self._name_table)
+
+    def get_total_size(self) -> int:
+        return (self._get_header_sizes()[1] + self._cur_entry_offset)
+
+    def serialize(self) -> bytes:
+        if (self._header.entry_count <= 0) or (self._header.name_table_size <= 0) or (len(self._entries) != self._header.entry_count) or (not self._name_table):
+            raise self.Exception(f'(Thread {self._thrd_id}) Error: unable to serialize empty PFS object.')
+
+        raw_header: bytes = b''
+
+        # Get unpadded and padded header sizes.
+        (header_size, padded_header_size) = self._get_header_sizes()
+
+        # Calculate padding size.
+        padding_size = (padded_header_size - header_size)
+
+        # Serialize full header.
+        raw_header += self._header.serialize(padding_size)
+
+        for entry in self._entries:
+            raw_header += entry.serialize()
+
+        raw_header += self._name_table
+
+        raw_header += (b'\x00' * padding_size)
+
+        return raw_header
+
+    def _get_header_sizes(self) -> tuple[int, int]:
+        header_size = (len(self._header) + (len(self._entries) * len(self._entries[0])) + len(self._name_table))
+        padded_header_size = ((header_size + PFS_FULL_HEADER_ALIGNMENT) if utilsIsAligned(header_size, PFS_FULL_HEADER_ALIGNMENT) else utilsAlignUp(header_size, PFS_FULL_HEADER_ALIGNMENT))
+        return (header_size, padded_header_size)
+
 class NspInfo:
     class Exception(Exception):
         def __init__(self, msg: str) -> None:
@@ -951,6 +1068,10 @@ class NspInfo:
     @property
     def is_nsz(self) -> bool:
         return self._is_nsz
+
+    @property
+    def is_standard_nsp(self) -> bool:
+        return self._is_standard_nsp
 
     @property
     def checksums(self) -> Checksums | None:
@@ -980,6 +1101,9 @@ class NspInfo:
         # Build NSP title list.
         self._build_title_list()
 
+        # Check if we've been dealing with a standard NSP.
+        self._standard_nsp_check()
+
         # Perform cleanup.
         self._cleanup()
 
@@ -993,12 +1117,15 @@ class NspInfo:
         self._nsz_converted = False
         self._tmp_path = ''
 
+        self._is_standard_nsp = False
+
         self._thrd_id = thrd_id
 
         self._checksums: Checksums | None = None
 
         self._ext_nsp_path = ''
 
+        self._meta_nca_count = 0
         self._titles: list[TitleInfo] = []
 
         self._cleanup_called = False
@@ -1055,6 +1182,9 @@ class NspInfo:
         if not meta_nca_infos:
             raise self.Exception(f'(Thread {self._thrd_id}) Error: failed to locate any Meta NCAs within the extracted NSP data.')
 
+        # Update Meta NCA count.
+        self._meta_nca_count = len(meta_nca_infos)
+
         # Loop through all Meta NCAs.
         for meta_nca in meta_nca_infos:
             try:
@@ -1066,6 +1196,56 @@ class NspInfo:
 
             # Update title list.
             self._titles.append(title_info)
+
+    def _standard_nsp_check(self) -> None:
+        # Short-circuit: return right away if we've been dealing with a multi-title NSP.
+        if self._meta_nca_count != 1:
+            return
+
+        # Get title info.
+        title_info = self._titles[0]
+
+        # Instantiate PFS object.
+        pfs = PartitionFileSystem(self._thrd_id)
+
+        try:
+            # Loop through all of our parsed contents and add a PFS entry for each one.
+            for cnt in title_info.contents:
+                pfs.add_entry(cnt.filename, cnt.size)
+
+            if title_info.tik_info:
+                # Add ticket entry.
+                pfs.add_entry(title_info.tik_info.filename, title_info.tik_info.size)
+
+                # Add certificate chain entry.
+                pfs.add_entry(f'{title_info.tik_info.rights_id}.cert', COMMON_CERT_SIZE)
+
+            # Get total PFS size.
+            pfs_total_size = pfs.get_total_size()
+
+            # Get serialized PFS header.
+            pfs_header = pfs.serialize()
+        except PartitionFileSystem.Exception as e:
+            # Reraise the exception as a NspInfo.Exception.
+            raise self.Exception(str(e))
+
+        # Compare filesystem sizes.
+        if self._nsp_size != pfs_total_size:
+            print(f'(Thread {self._thrd_id}) NSP size doesn\'t match the serialized PFS size. Got 0x{self._nsp_size:X}, expected 0x{pfs_total_size:X}. This is not a standard NSP.', flush=True)
+            return
+
+        # Read NSP header.
+        with open(self._nsp_path, 'rb') as fd:
+            nsp_header = fd.read(len(pfs_header))
+
+        # Compare data.
+        for i, val in enumerate(pfs_header):
+            if nsp_header[i] != val:
+                print(f'(Thread {self._thrd_id}) Mismatch found at offset 0x{i:X} while comparing NSP and serialized PFS headers. Got 0x{nsp_header[i]:02X}, expected 0x{val:02X}. This is not a standard NSP.', flush=True)
+                return
+
+        # Set standard NSP flag.
+        self._is_standard_nsp = True
 
     def _get_meta_nca_infos(self) -> list[NcaInfo]:
         meta_nca_infos: list[NcaInfo] = []
@@ -1211,6 +1391,9 @@ class XmlDataset:
         # Generate dev status string.
         dev_status = self._get_dev_status(title_info)
 
+        # Generate source format string.
+        src_format = ('StandardNSP' if nsp_info.is_standard_nsp else 'NSP')
+
         # Generate XML entry.
         title_str  = '  <game name="">\n'
         title_str += f'    <archive name="{archive_name}" name_alt="" region="{DEFAULT_REGION}" languages="{languages}" langchecked="0" version1="{version1}" version2="{version2}" devstatus="{dev_status}" additional="eShop" special1="" special2="" gameid1="{title_info.id}" />\n'
@@ -1236,12 +1419,12 @@ class XmlDataset:
             title_str += '    </media>\n'
 
         title_str += '    <source>\n'
-        title_str += f'      <details section="{DEFAULT_SECTION}" rominfo="" originalformat="NSP" d_date="{DEFAULT_DDATE}" d_date_info="{int(DDATE_PROVIDED)}" r_date="{DEFAULT_RDATE}" r_date_info="{int(RDATE_PROVIDED)}" dumper="{DEFAULT_DUMPER}" project="{DEFAULT_PROJECT}" tool="{DEFAULT_TOOL}" region="{DEFAULT_REGION}" origin="" comment1="" comment2="{self._comment2}" link1="" link2="" media_title="" />\n'
+        title_str += f'      <details section="{DEFAULT_SECTION}" rominfo="" originalformat="{src_format}" d_date="{DEFAULT_DDATE}" d_date_info="{int(DDATE_PROVIDED)}" r_date="{DEFAULT_RDATE}" r_date_info="{int(RDATE_PROVIDED)}" dumper="{DEFAULT_DUMPER}" project="{DEFAULT_PROJECT}" tool="{DEFAULT_TOOL}" region="{DEFAULT_REGION}" origin="" comment1="" comment2="{self._comment2}" link1="" link2="" media_title="" />\n'
         title_str += f'      <serials media_serial1="" media_serial2="" pcb_serial="" romchip_serial1="" romchip_serial2="" lockout_serial="" savechip_serial="" chip_serial="" box_serial="" mediastamp="" box_barcode="" digital_serial1="{title_info.id}" digital_serial2="" />\n'
 
         if not EXCLUDE_NSP:
             # Add NSP information.
-            title_str += self._generate_xml_file_elem('', 'nsp', 'NSP', '', title_info.version, nsp_info.size, nsp_info.checksums, '')
+            title_str += self._generate_xml_file_elem('', 'nsp', src_format, '', title_info.version, nsp_info.size, nsp_info.checksums, '')
 
         for cnt in title_info.contents:
             if not cnt.checksums:
@@ -1348,14 +1531,38 @@ class XmlDataset:
         return archive_name
 
     def _normalize_archive_name(self, name: str) -> str:
-        # Remove illegal filesystem characters.
-        out = re.sub(r'[\\/*?"<>|]', '', name)
+        articles = {'a', 'an', 'the'}
+        link_words = {'and', 'or', 'but', 'nor', 'so', 'yet', 'for', 'at', 'by', 'in', 'on', 'to', 'of', 'up', 'with', 'as', 'per'}
 
-        # Replace colons with dashes.
-        out = re.sub(r'\s*:\s*', ' - ', out)
+        # Remove illegal filesystem characters.
+        out = re.sub(r'[\\/*?"<>|`]', '', name)
+
+        # Replace colons, em dashes and en dashes with regular dashes.
+        out = re.sub(r'\s*[:–—]\s*', ' - ', out)
 
         # Replace consecutive whitespaces with a single one.
         out = ' '.join(out.split()).strip()
+
+        # Handle string capitalization.
+        words = out.split()
+
+        formatted_words = [
+            word.lower() if (word.lower() in articles or word.lower() in link_words) else
+            word if (word.isupper() or word.isalpha()) else word.capitalize()
+            for word in words
+        ]
+
+        if formatted_words[0].lower() in articles:
+            article = formatted_words.pop(0).capitalize()
+            try:
+                sep_index = formatted_words.index('-')
+                formatted_words[sep_index - 1] += ','
+                formatted_words.insert(sep_index, article)
+            except ValueError:
+                formatted_words[-1] += ','
+                formatted_words.append(article)
+
+        out = ' '.join(formatted_words)
 
         # Escape HTML entities.
         return html_escape(out)
