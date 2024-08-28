@@ -873,9 +873,6 @@ class NspGenerator:
             if (packaged_content_info.info.type == Cnmt.ContentType.control) and (packaged_content_info.info.id_offset == 0) and (not self._nacp):
                 self._extract_and_parse_nacp(nca_info)
 
-        # Sort contents list by content type and ID offset.
-        self._contents = sorted(self._contents, key=lambda x: (x.cnt_type, x.id_offset))
-
         # Append Meta NCA to the list.
         self._contents.append(self._meta_nca)
 
