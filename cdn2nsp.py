@@ -148,7 +148,7 @@ def utilsDeleteBogusTitleKeysFile() -> None:
         os.remove(BOGUS_TITLEKEYS_PATH)
 
 def utilsLocateCdnFile(base_path: str, filename: str, size: int = -1) -> str:
-    # Check if we can find the requested file at the provided base path.
+    # Short-circuit: check if we can find the requested file at the provided base path.
     cur_path = os.path.join(base_path, filename)
     if os.path.exists(cur_path) and os.path.isfile(cur_path):
         # Validate size.
@@ -158,9 +158,13 @@ def utilsLocateCdnFile(base_path: str, filename: str, size: int = -1) -> str:
 
     def utilsLocateCdnFileRecursiveScan(root: str) -> str:
         # Recursively scan input directory.
-        file_list = glob.glob(pathname=f'**/{filename}', root_dir=root, recursive=True)
+        file_list = glob.glob(os.path.join(root, '**'), recursive=True)
         for cur_path in file_list:
             cur_path = os.path.join(root, cur_path)
+
+            # Skip files that don't match our filename.
+            if os.path.basename(cur_path).casefold() != filename.casefold():
+                continue
 
             # Skip directories.
             if os.path.isdir(cur_path):
@@ -446,7 +450,14 @@ class TikInfo:
         self._thrd_id = thrd_id
 
         self._tik_filename = f'{self._rights_id}.tik'
+
         self._tik_path = utilsLocateCdnFile(self._base_path, self._tik_filename)
+        if self._tik_path and os.path.basename(self._tik_path) != self._tik_filename:
+            # Rename ticket, if needed.
+            tmp_path = os.path.join(os.path.dirname(self._tik_path), self._tik_filename)
+            os.rename(self._tik_path, tmp_path)
+            self._tik_path = tmp_path
+
         self._tik_size = (os.path.getsize(self._tik_path) if self._tik_path else 0)
 
         self._enc_titlekey: TitleKeyInfo | None = None
