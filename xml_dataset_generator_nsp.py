@@ -68,7 +68,6 @@ DEFAULT_COMMENT2: str = ''
 
 EXCLUDE_COMMENT:  bool = False
 KEEP_FOLDERS:     bool = False
-APPEND_XML_DATA:  bool = False
 NUM_THREADS:      int  = MAX_CPU_THREAD_COUNT
 
 HACTOOLNET_VERSION_REGEX            = re.compile(r'^hactoolnet (\d+\.\d+.\d+)$', flags=(re.MULTILINE | re.IGNORECASE))
@@ -111,6 +110,8 @@ XML_HEADER     += '  <header>\n'
 XML_HEADER     += '  </header>\n'
 
 XML_FOOTER: str = '</datafile>\n'
+
+XML_ENTRY_LIMIT: int = 30
 
 GIT_BRANCH: str = ''
 GIT_COMMIT: str = ''
@@ -166,9 +167,13 @@ def utilsIsAsciiString(s: str) -> bool:
     except UnicodeEncodeError:
         return False
 
-def utilsGetListChunks(lst: list, n: int) -> Generator:
+def utilsSplitListIntoNChunks(lst: list, n: int) -> Generator:
     for i in range(0, n):
         yield lst[i::n]
+
+def utilsSplitListIntoFixedSizeChunks(lst: list, n: int) -> Generator:
+    for i in range(0, len(lst), n):
+        yield lst[i:i + n]
 
 def utilsReconfigureTerminalOutput() -> None:
     if sys.version_info >= (3, 7):
@@ -1313,6 +1318,9 @@ class NspInfo:
         self._cleanup(True)
 
 class XmlDataset:
+    XmlEntry: TypeAlias = tuple[str, str] # Archive name, XML entry string
+    XmlEntryList: TypeAlias = list[XmlEntry]
+
     @total_ordering
     class Type(IntEnum):
         APPLICATION = 0,
@@ -1347,12 +1355,12 @@ class XmlDataset:
         return self._type
 
     @property
-    def path(self) -> str:
-        return self._path
+    def entry_count(self) -> int:
+        return len(self._entries)
 
     @property
-    def entry_count(self) -> int:
-        return self._entry_count
+    def file_count(self) -> int:
+        return self._xml_file_count
 
     @property
     def is_finalized(self) -> bool:
@@ -1360,10 +1368,9 @@ class XmlDataset:
 
     def __init__(self, type: XmlDataset.Type) -> None:
         self._type = type
-        self._path = os.path.join(OUTPUT_PATH, f'nswd_{self._type.name.lower()}.xml')
-        self._fd: IO | None = None
         self._comment2 = ('' if EXCLUDE_COMMENT else DEFAULT_COMMENT2)
-        self._entry_count = 0
+        self._entries: XmlDataset.XmlEntryList = []
+        self._xml_file_count = 0
         self._is_finalized = False
 
     def add_entry(self, nsp_info: NspInfo, title_info: TitleInfo) -> None:
@@ -1373,9 +1380,6 @@ class XmlDataset:
         # Make sure we're dealing with a valid title type.
         if (self._type == XmlDataset.Type.APPLICATION and title_info.type != Cnmt.ContentMetaType.application) or (self._type == XmlDataset.Type.UPDATE and title_info.type != Cnmt.ContentMetaType.patch) or (self._type == XmlDataset.Type.DLC and title_info.type != Cnmt.ContentMetaType.add_on_content) or (self._type == XmlDataset.Type.DLC_UPDATE and title_info.type != Cnmt.ContentMetaType.data_patch):
             raise ValueError(f'Error: invalid content meta type value for {self._type.normalized_name} dataset (0x{title_info.type.value:02X}).')
-
-        # Make sure the XML file has been opened.
-        self._open_xml()
 
         # Generate archive name string.
         archive_name = self._get_archive_name(nsp_info, title_info)
@@ -1394,7 +1398,7 @@ class XmlDataset:
 
         # Generate XML entry.
         title_str  = '  <game name="">\n'
-        title_str += f'    <archive name="{archive_name}" name_alt="" region="{DEFAULT_REGION}" languages="{languages}" langchecked="0" version1="{version1}" version2="{version2}" devstatus="{dev_status}" additional="eShop" special1="" special2="" gameid1="{title_info.id}" />\n'
+        title_str += f'    <archive name="{html_escape(archive_name)}" name_alt="" region="{DEFAULT_REGION}" languages="{languages}" langchecked="0" version1="{version1}" version2="{version2}" devstatus="{dev_status}" additional="eShop" special1="" special2="" gameid1="{title_info.id}" />\n'
 
         if title_info.lang_entries or title_info.display_version:
             title_str += '    <media>\n'
@@ -1452,65 +1456,53 @@ class XmlDataset:
         title_str += '    </source>\n'
         title_str += '  </game>\n'
 
-        # Write metadata.
-        if self._fd:
-            self._fd.write(title_str)
+        # Append generated XML entry.
+        self._entries.append((archive_name, title_str))
 
-        # Update entry count.
-        self._entry_count += 1
-
-    def finalize(self, force_deletion: bool = False) -> None:
+    def finalize(self) -> None:
         if self._is_finalized:
             return
 
-        if self._fd:
-            if (self._entry_count > 0) and (not force_deletion):
-                # Write XML footer.
-                self._fd.write(XML_FOOTER)
+        # Short-circuit: don't do anything if we have no entries to write.
+        if not self._entries:
+            self._is_finalized = True
+            return
+
+        # Sort entries by archive name.
+        if len(self._entries) > 1:
+            self._entries.sort(key=lambda x: x[0])
+
+        # Get XML entries chunks.
+        xml_entries_chunks = utilsSplitListIntoFixedSizeChunks(self._entries, XML_ENTRY_LIMIT)
+
+        # Loop through our XML entries chunks.
+        for i, xml_entries in enumerate(xml_entries_chunks):
+            # Generate current file path.
+            xml_path = os.path.join(OUTPUT_PATH, f'nswd_{self._type.name.lower()}')
+            xml_path += (f'_idx{self._xml_file_count}.xml' if len(self._entries) > XML_ENTRY_LIMIT else '.xml')
+
+            # Open output XML file.
+            xml_fd = open(xml_path, 'w', encoding='utf-8-sig')
+
+            # Write XML file header.
+            xml_fd.write(XML_HEADER)
+
+            # Write XML entries.
+            for _, xml_entry in enumerate(xml_entries):
+                #print(f'Writing entry "{xml_entry[0]}" to "{xml_path}"...', flush=True)
+                xml_fd.write(xml_entry[1])
+
+            # Write XML footer.
+            xml_fd.write(XML_FOOTER)
 
             # Close XML file.
-            self._fd.close()
+            xml_fd.close()
 
-            if (self._entry_count <= 0) or force_deletion:
-                # Delete XML file.
-                os.remove(self._path)
+            # Increment file count.
+            self._xml_file_count += 1
 
         # Update flag.
         self._is_finalized = True
-
-    def _open_xml(self) -> None:
-        if self._fd:
-            return
-
-        append = (os.path.exists(self._path) and (os.path.getsize(self._path) > (len(XML_HEADER) + len(XML_FOOTER))) and APPEND_XML_DATA)
-
-        # Open output XML file.
-        self._fd = open(self._path, 'a+' if append else 'w', encoding='utf-8-sig')
-
-        if append:
-            offset = self._fd.tell()
-            chunk_size = len(XML_FOOTER)
-
-            while offset >= chunk_size:
-                self._fd.seek(offset - chunk_size)
-                data = self._fd.read(chunk_size)
-
-                if data == XML_FOOTER:
-                    offset -= chunk_size
-                    self._fd.truncate(offset)
-                    break
-
-                offset -= 1
-
-            if offset < chunk_size:
-                # We tried.
-                self._fd.close()
-                self._fd = open(self._path, 'w', encoding='utf-8-sig')
-                append = False
-
-        if not append:
-            # Write XML file header.
-            self._fd.write(XML_HEADER)
 
     def _get_archive_name(self, nsp_info: NspInfo, title_info: TitleInfo) -> str:
         if title_info.lang_entries:
@@ -1560,10 +1552,7 @@ class XmlDataset:
                 formatted_words[-1] += ','
                 formatted_words.append(article)
 
-        out = ' '.join(formatted_words)
-
-        # Escape HTML entities.
-        return html_escape(out)
+        return ' '.join(formatted_words)
 
     def _get_languages(self, title_info: TitleInfo) -> str:
         return ('En' if not title_info.supported_dom_languages else ','.join(title_info.supported_dom_languages))
@@ -1594,14 +1583,6 @@ class XmlDataset:
         filter = (f' filter="{filter}" ' if filter else ' ')
 
         return f'      <file forcename="{forcename}"{extension}format="{format}"{note}version="{version}" size="{size}" crc32="{checksums.crc32}" md5="{checksums.md5}" sha1="{checksums.sha1}" sha256="{checksums.sha256}"{filter}/>\n'
-
-    def __exit__(self) -> None:
-        #print('xml: __exit__ called', flush=True)
-        self.finalize(True)
-
-    def __del__(self) -> None:
-        #print('xml: __del__ called', flush=True)
-        self.finalize(True)
 
 def utilsGenerateXmlDataset(nsp_list: list[NspInfo]) -> None:
     xml_obj: list[XmlDataset] = []
@@ -1641,7 +1622,7 @@ def utilsGenerateXmlDataset(nsp_list: list[NspInfo]) -> None:
         cur_xml_obj.finalize()
 
         if cur_xml_obj.entry_count > 0:
-            print(f'Successfully wrote {cur_xml_obj.entry_count} {cur_xml_obj.type.normalized_name} {"entries" if cur_xml_obj.entry_count > 1 else "entry"} to "{cur_xml_obj.path}".', flush=True)
+            print(f'Successfully wrote {cur_xml_obj.entry_count} {cur_xml_obj.type.normalized_name} {"entries" if cur_xml_obj.entry_count > 1 else "entry"} to {cur_xml_obj.file_count} {"files" if cur_xml_obj.file_count > 1 else "file"}.', flush=True)
 
 def utilsProcessNspList(file_list_chunks: list[FileList], results: list[list[NspInfo]]) -> None:
     thrd_id = int(threading.current_thread().name)
@@ -1697,7 +1678,7 @@ def utilsProcessNspDirectory() -> None:
         return
 
     # Create processing threads.
-    file_list_chunks: list[FileList] = list(filter(None, list(utilsGetListChunks(file_list, NUM_THREADS))))
+    file_list_chunks: list[FileList] = list(filter(None, list(utilsSplitListIntoNChunks(file_list, NUM_THREADS))))
     num_threads = len(file_list_chunks)
 
     threads: list[threading.Thread] = []
@@ -1744,7 +1725,7 @@ def utilsValidateThreadCount(num_threads: str) -> int:
 def main() -> int:
     global NSP_PATH, HACTOOLNET_PATH, KEYS_PATH, CERT_PATH, OUTPUT_PATH, EXCLUDE_NSP, EXCLUDE_TIK
     global DEFAULT_SECTION, DDATE_PROVIDED, DEFAULT_DDATE, RDATE_PROVIDED, DEFAULT_RDATE, DEFAULT_DUMPER, DEFAULT_PROJECT, DEFAULT_TOOL, DEFAULT_REGION
-    global EXCLUDE_COMMENT, KEEP_FOLDERS, APPEND_XML_DATA, NUM_THREADS
+    global EXCLUDE_COMMENT, KEEP_FOLDERS, NUM_THREADS
 
     # Get git commit information.
     utilsGetGitRepositoryInfo()
@@ -1752,7 +1733,7 @@ def main() -> int:
     # Reconfigure terminal output whenever possible.
     utilsReconfigureTerminalOutput()
 
-    parser = argparse.ArgumentParser(description='Generate a XML dataset from Nintendo Submission Package (NSP) files.')
+    parser = argparse.ArgumentParser(description='Generate importable DAT-o-MATIC (DoM) XML datasets from Nintendo Submission Package (NSP) files.', epilog=f'A XML dataset will be generated per each detected title type (application/update/dlc/dlc update).\n\nIn order to avoid issues related to DoM\'s server limitations, output XMLs will only hold up to {XML_ENTRY_LIMIT} entries. Splitting will be carried out if needed.')
 
     parser.add_argument('--nspdir', type=str, metavar='DIR', default='', help=f'Path to directory with NSP files. Defaults to "{NSP_PATH}".')
     parser.add_argument('--hactoolnet', type=str, metavar='FILE', default='', help=f'Path to hactoolnet binary. Defaults to "{HACTOOLNET_PATH}".')
@@ -1772,7 +1753,6 @@ def main() -> int:
 
     parser.add_argument('--exclude-comment', action='store_true', default=EXCLUDE_COMMENT, help='Excludes information about this script from the comment2 field in XML entries. Disabled by default (comment2 fields hold information about this script).')
     parser.add_argument('--keep-folders', action='store_true', default=KEEP_FOLDERS, help='Keeps extracted NSP folders in the provided output directory. Disabled by default (all extracted folders are removed).')
-    parser.add_argument('--append-xml-data', action='store_true', default=APPEND_XML_DATA, help='Appends data to the output XMLs if they already exist instead of overwriting them. If this option is enabled and one or more of the generated XML entries are duplicates from a previous run of the script (e.g. by feeding it the same NSPs), they won\'t be taken care of. Disabled by default (all XMLs are discarded and written from scratch).')
     parser.add_argument('--num-threads', type=utilsValidateThreadCount, metavar='VALUE', default=NUM_THREADS, help=f'Sets the number of threads used to process input NSP/NSZ files. Defaults to {NUM_THREADS} if not provided. This value must not be exceeded.')
 
     print(f'{SCRIPT_NAME}.\nRevision: {GIT_REV}.\nMade by DarkMatterCore.\n', flush=True)
@@ -1800,7 +1780,6 @@ def main() -> int:
 
     EXCLUDE_COMMENT = args.exclude_comment
     KEEP_FOLDERS = args.keep_folders
-    APPEND_XML_DATA = args.append_xml_data
     NUM_THREADS = args.num_threads
 
     # Get hactoolnet version.
