@@ -1205,6 +1205,11 @@ class NspInfo:
             print(f'(Thread {self._thrd_id}) Input NSP holds more than one title. This is not a standard NSP.', flush=True)
             return
 
+        # Short-circuit: return immediately if we have no TitleInfo objects.
+        if not self._titles:
+            print(f'(Thread {self._thrd_id}) Unable to parse any titles from input NSP. Skipping standard NSP check.', flush=True)
+            return
+
         # Get title info.
         title_info = self._titles[0]
 

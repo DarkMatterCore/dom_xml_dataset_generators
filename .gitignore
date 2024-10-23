@@ -17,5 +17,6 @@ hactool*
 *.keys
 *.dat
 *.cert
+*.diff
 
 !requirements.txt
