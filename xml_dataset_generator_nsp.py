@@ -1534,7 +1534,7 @@ class XmlDataset:
             archive_name = self._normalize_archive_name(title_info.lang_entries[0].name)
         else:
             # Use a portion of the NSP filename, if possible (gross, I know, but it's either this or using an external database).
-            extracted_name = re.split(r'\[[a-fA-F0-9]{16}\]', nsp_info.filename, 1)[0]
+            extracted_name = re.split(r'\[[a-fA-F0-9]{16}\]', nsp_info.filename, maxsplit=1)[0]
             if extracted_name != nsp_info.filename:
                 # Normalize the extracted filename.
                 archive_name = self._normalize_archive_name(extracted_name)
