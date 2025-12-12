@@ -99,7 +99,7 @@ def utilsProcessLogfile(logfile: str) -> None:
                     space *= 1
                     if l > 0:
                         print()
-                elif w.startswith('Parsing') or w.startswith('Converting'):
+                elif w.startswith('Extracting') or w.startswith('Parsing') or w.startswith('Converting') or w.startswith('Unable to parse any titles from input NSP'):
                     space *= 2
                 else:
                     space *= 3
