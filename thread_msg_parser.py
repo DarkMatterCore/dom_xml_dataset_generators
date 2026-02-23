@@ -72,6 +72,8 @@ def utilsProcessLogfile(logfile: str) -> None:
             # Update message dictionary.
             msg.update({ thrd_id: thrd_msg })
 
+    msg = dict(sorted(msg.items()))
+
     """import pprint
     pp = pprint.PrettyPrinter(indent=4)
     pp.pprint(msg)"""
@@ -99,7 +101,7 @@ def utilsProcessLogfile(logfile: str) -> None:
                     space *= 1
                     if l > 0:
                         print()
-                elif w.startswith('Extracting') or w.startswith('Parsing') or w.startswith('Converting') or w.startswith('Unable to parse any titles from input NSP'):
+                elif w.startswith('Adding'):
                     space *= 2
                 else:
                     space *= 3
