@@ -1017,7 +1017,7 @@ class XmlDataset:
 
         # Generate XML entry.
         title_str  = '  <game name="">\n'
-        title_str += f'    <archive name="{html_escape(archive_name)}" name_alt="" region="{DEFAULT_REGION}" languages="{languages}" langchecked="0" version1="{version1}" version2="{version2}" devstatus="{dev_status}" additional="eShop" special1="" special2="{dev_status}" gameid1="{title_info.id}" gameid2="{gameid2}" />\n'
+        title_str += f'    <archive name="{html_escape(archive_name)}" name_alt="" region="{DEFAULT_REGION}" languages="{languages}" langchecked="0" version1="{version1}" version2="{version2}" devstatus="{dev_status}" additional="eShop" special1="" special2="" gameid1="{title_info.id}" gameid2="{gameid2}" />\n'
 
         if title_info.lang_entries or title_info.display_version:
             title_str += '    <media>\n'
@@ -1038,7 +1038,7 @@ class XmlDataset:
 
         title_str += '    <source>\n'
         title_str += f'      <details section="{DEFAULT_SECTION}" rominfo="" originalformat="{src_format}" d_date="{ddate}" d_date_info="{int(ddate_provided)}" r_date="{DEFAULT_RDATE}" r_date_info="{int(RDATE_PROVIDED)}" dumper="{DEFAULT_DUMPER}" project="{DEFAULT_PROJECT}" tool="{DEFAULT_TOOL}" region="{DEFAULT_REGION}" origin="" comment1="" comment2="{self._comment2}" link1="" link2="" media_title="" />\n'
-        title_str += f'      <serials media_serial1="" media_serial2="" pcb_serial="" romchip_serial1="" romchip_serial2="" lockout_serial="" savechip_serial="" chip_serial="" box_serial="" mediastamp="" box_barcode="" digital_serial1="{title_info.id}" digital_serial2="" />\n'
+        title_str += f'      <serials media_serial1="" media_serial2="" pcb_serial="" romchip_serial1="" romchip_serial2="" lockout_serial="" savechip_serial="" chip_serial="" box_serial="" mediastamp="" box_barcode="" digital_serial1="{title_info.id}" digital_serial2="{gameid2}" />\n'
 
         if not EXCLUDE_NSP:
             # Add NSP information.
@@ -1194,6 +1194,8 @@ class XmlDataset:
         return (', '.join(dev_status) if dev_status else '')
 
     def _get_gameid2(self, title_info: TitleInfo) -> str:
+        display_version = (f'[{title_info.display_version}]' if title_info.display_version else '')
+
         match title_info.type:
             case NcmContentMetaType.SYSTEM_PROGRAM:
                 type_str = 'SYSPRG'
@@ -1218,7 +1220,7 @@ class XmlDataset:
             case _:
                 type_str = ''
 
-        return f'[{title_info.id}][v{title_info.version}][{type_str}]'
+        return f'{display_version}[{title_info.id}][v{title_info.version}][{type_str}]'
 
     def _generate_xml_file_elem(self, forcename: str, extension: str, format: str, note: str, version: int, size: int, checksums: Checksums, filter: str) -> str:
         extension = (f' extension="{extension}" ' if extension else ' ')
