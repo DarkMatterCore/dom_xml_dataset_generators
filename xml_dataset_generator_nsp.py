@@ -643,7 +643,7 @@ class TitleInfo:
 
         title_metadata: JSON = json_report['title_metadata']
 
-        self._title_id: str = title_metadata['title_id'].lower()
+        self._title_id: str = title_metadata['title_id'].upper()
         self._title_version = int(title_metadata['version'])
         self._title_type = NcmContentMetaType(title_metadata['content_meta_type'])
 
@@ -1005,6 +1005,9 @@ class XmlDataset:
         # Generate dev status string.
         dev_status = self._get_dev_status(title_info)
 
+        # Generate Game ID #2 string.
+        gameid2 = self._get_gameid2(title_info)
+
         # Generate source format string.
         src_format = ('StandardNSP' if nsp_info.is_standard_nsp else 'NSP')
 
@@ -1014,7 +1017,7 @@ class XmlDataset:
 
         # Generate XML entry.
         title_str  = '  <game name="">\n'
-        title_str += f'    <archive name="{html_escape(archive_name)}" name_alt="" region="{DEFAULT_REGION}" languages="{languages}" langchecked="0" version1="{version1}" version2="{version2}" devstatus="{dev_status}" additional="eShop" special1="" special2="" gameid1="{title_info.id}" />\n'
+        title_str += f'    <archive name="{html_escape(archive_name)}" name_alt="" region="{DEFAULT_REGION}" languages="{languages}" langchecked="0" version1="{version1}" version2="{version2}" devstatus="{dev_status}" additional="eShop" special1="" special2="{dev_status}" gameid1="{title_info.id}" gameid2="{gameid2}" />\n'
 
         if title_info.lang_entries or title_info.display_version:
             title_str += '    <media>\n'
@@ -1189,6 +1192,33 @@ class XmlDataset:
                 pass
 
         return (', '.join(dev_status) if dev_status else '')
+
+    def _get_gameid2(self, title_info: TitleInfo) -> str:
+        match title_info.type:
+            case NcmContentMetaType.SYSTEM_PROGRAM:
+                type_str = 'SYSPRG'
+            case NcmContentMetaType.SYSTEM_DATA:
+                type_str = 'SYSDAT'
+            case NcmContentMetaType.SYSTEM_UPDATE:
+                type_str = 'SYSUPD'
+            case NcmContentMetaType.BOOT_IMAGE_PACKAGE:
+                type_str = 'BIP'
+            case NcmContentMetaType.BOOT_IMAGE_PACKAGE_SAFE:
+                type_str = 'BIPS'
+            case NcmContentMetaType.APPLICATION:
+                type_str = 'BASE'
+            case NcmContentMetaType.PATCH:
+                type_str = 'UPD'
+            case NcmContentMetaType.ADD_ON_CONTENT:
+                type_str = 'DLC'
+            case NcmContentMetaType.DELTA:
+                type_str = 'DELTA'
+            case NcmContentMetaType.DATA_PATCH:
+                type_str = 'DLCUPD'
+            case _:
+                type_str = ''
+
+        return f'[{title_info.id}][v{title_info.version}][{type_str}]'
 
     def _generate_xml_file_elem(self, forcename: str, extension: str, format: str, note: str, version: int, size: int, checksums: Checksums, filter: str) -> str:
         extension = (f' extension="{extension}" ' if extension else ' ')
