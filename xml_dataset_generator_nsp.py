@@ -20,8 +20,7 @@
 
 from __future__ import annotations
 
-from turtle import title
-import os, sys, re, subprocess, shutil, hashlib, zlib, random, string, datetime, glob, threading, psutil, time, argparse, io, traceback, pathlib, rsa, struct, json
+import os, sys, re, subprocess, shutil, hashlib, zlib, random, string, datetime, threading, psutil, time, argparse, io, traceback, pathlib, json, datetime
 
 from functools import total_ordering
 from enum import IntEnum
@@ -106,7 +105,7 @@ XML_HEADER     += '  </header>\n'
 
 XML_FOOTER: str = '</datafile>\n'
 
-XML_ENTRY_LIMIT: int = 30
+XML_ENTRY_LIMIT: int = 20
 
 GIT_BRANCH: str = ''
 GIT_COMMIT: str = ''
@@ -971,8 +970,12 @@ class XmlDataset:
         return len(self._entries)
 
     @property
+    def file_list(self) -> list[str]:
+        return self._xml_files
+
+    @property
     def file_count(self) -> int:
-        return self._xml_file_count
+        return len(self._xml_files)
 
     @property
     def is_finalized(self) -> bool:
@@ -982,7 +985,7 @@ class XmlDataset:
         self._type = type
         self._comment2 = ('' if EXCLUDE_COMMENT else DEFAULT_COMMENT2)
         self._entries: XmlDataset.XmlEntryList = []
-        self._xml_file_count = 0
+        self._xml_files: list[str] = []
         self._is_finalized = False
 
     def add_entry(self, nsp_info: NspInfo, title_info: TitleInfo) -> None:
@@ -1092,10 +1095,15 @@ class XmlDataset:
         xml_entries_chunks = utilsSplitListIntoFixedSizeChunks(self._entries, XML_ENTRY_LIMIT)
 
         # Loop through our XML entries chunks.
-        for i, xml_entries in enumerate(xml_entries_chunks):
+        for _, xml_entries in enumerate(xml_entries_chunks):
             # Generate current file path.
             xml_path = os.path.join(OUTPUT_PATH, f'nswd_{self._type.name.lower()}')
-            xml_path += (f'_idx{self._xml_file_count}.xml' if len(self._entries) > XML_ENTRY_LIMIT else '.xml')
+
+            if len(self._entries) > XML_ENTRY_LIMIT:
+                xml_path += f'_idx{len(self._xml_files)}'
+
+            timestamp = datetime.datetime.now().strftime("%Y%m%d%H%M%S")
+            xml_path += f'_{timestamp}.xml'
 
             # Open output XML file.
             xml_fd = open(xml_path, 'w', encoding='utf-8-sig')
@@ -1114,8 +1122,8 @@ class XmlDataset:
             # Close XML file.
             xml_fd.close()
 
-            # Increment file count.
-            self._xml_file_count += 1
+            # Update XML file list.
+            self._xml_files.append(xml_path)
 
         # Update flag.
         self._is_finalized = True
@@ -1264,7 +1272,14 @@ def utilsGenerateXmlDataset(nsp_list: list[NspInfo]) -> None:
         cur_xml_obj.finalize()
 
         if cur_xml_obj.entry_count > 0:
-            print(f'Successfully wrote {cur_xml_obj.entry_count} {cur_xml_obj.type.normalized_name} {"entries" if cur_xml_obj.entry_count > 1 else "entry"} to {cur_xml_obj.file_count} {"files" if cur_xml_obj.file_count > 1 else "file"}.', flush=True)
+            entry_str = ("entries" if cur_xml_obj.entry_count > 1 else "entry")
+
+            if cur_xml_obj.file_count > 0:
+                print(f'Successfully wrote {cur_xml_obj.entry_count} {cur_xml_obj.type.normalized_name} {entry_str} to {cur_xml_obj.file_count} {"files" if cur_xml_obj.file_count > 1 else "file"}:', flush=True)
+                for file in cur_xml_obj.file_list:
+                    print(f'\t- "{file}".', flush=True)
+            else:
+                eprint(f'Error: unable to write {cur_xml_obj.entry_count} {cur_xml_obj.type.normalized_name} {entry_str}.')
 
 def utilsProcessNspList(file_list_chunks: list[FileList], results: list[list[NspInfo]]) -> None:
     thrd_id = int(threading.current_thread().name)
