@@ -579,8 +579,8 @@ class TikInfo:
 
         self._tik_checksums = Checksums.from_checksums_dict(ticket_info['checksums'])
 
-        self._enc_titlekey = TitleKeyInfo(titlekey_info['encrypted']['value'], self._rights_id, True)
-        self._dec_titlekey = TitleKeyInfo(titlekey_info['decrypted']['value'], self._rights_id, False)
+        self._enc_titlekey = TitleKeyInfo(titlekey_info['encrypted']['value'], self._rights_id, False)
+        self._dec_titlekey = TitleKeyInfo(titlekey_info['decrypted']['value'], self._rights_id, True)
 
 class TitleInfo:
     class Exception(Exception):
